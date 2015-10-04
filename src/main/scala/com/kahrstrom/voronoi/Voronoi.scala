@@ -41,10 +41,7 @@ import scala.util.Random
  * REPRESENTATION OR WARRANTY OF ANY KIND CONCERNING THE MERCHANTABILITY
  * OF THIS SOFTWARE OR ITS FITNESS FOR ANY PARTICULAR PURPOSE.
  */
-/*
- * Scala Version by Johan Kåhrström. Adapted from the Java version by
- * Zhenyu Pan. Same permissions as above.
- */
+/* Scala version by Johan Kåhrstrom, same permissions as above */
 
 class Edge(val a: Double, val b: Double, val c: Double, val regL: Site, val regR: Site) {
   var endPoints: Array[Site] = new Array[Site](2)
