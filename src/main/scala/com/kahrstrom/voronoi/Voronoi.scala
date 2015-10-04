@@ -68,12 +68,6 @@ class Halfedge(val ELpm: Side) {
     this.ELright.ELleft = newHe
     this.ELright = newHe
   }
-
-  def delete(): Unit = {
-    ELleft.ELright = ELright
-    ELright.ELleft = ELleft
-    deleted = true
-  }
 }
 
 object Halfedge {
@@ -152,6 +146,9 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
       PQcount -= 1
       he.vertex = null
     }
+    he.ELleft.ELright = he.ELright
+    he.ELright.ELleft = he.ELleft
+    he.deleted = true
   }
 
   def pQinsert(he: Halfedge, v: Point, offset: Double) {
@@ -185,6 +182,9 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
     curr = PQhash(PQmin).PQnext
     PQhash(PQmin).PQnext = curr.PQnext
     PQcount -= 1
+    curr.ELleft.ELright = curr.ELright
+    curr.ELright.ELleft = curr.ELleft
+    curr.deleted = true
     curr
   }
 }
@@ -558,9 +558,6 @@ class Voronoi(minDistanceBetweenSites: Double) {
 
   private def voronoi_bd(sqrtNrSites: Int, nrSites: Int, maxBox: Box, boundingBox: Box): Boolean = {
     var newsite: Site = null
-    var bot: Site = null
-    var top: Site = null
-    var temp: Site = null
     var newintstar: Point = null
     val pqHash: PQHash = new PQHash(sqrtNrSites, boundingBox)
     val el: ELt = new ELt(sqrtNrSites, boundingBox)
@@ -574,7 +571,7 @@ class Voronoi(minDistanceBetweenSites: Double) {
       if (newsite != null && (pqHash.pQempty || newsite.coord.y < newintstar.y || (newsite.coord.y == newintstar.y && newsite.coord.x < newintstar.x))) {
         val lbnd = el.leftbnd(newsite.coord)
         val rbnd = lbnd.ELright
-        bot = rightreg(lbnd)
+        val bot = rightreg(lbnd)
         val e = bisect(bot, newsite)
         val bisector = Halfedge.create(e, LE)
         lbnd.insert(bisector)
@@ -593,25 +590,15 @@ class Voronoi(minDistanceBetweenSites: Double) {
         val llbnd = lbnd.ELleft
         val rbnd = lbnd.ELright
         val rrbnd = rbnd.ELright
-        bot = leftreg(lbnd)
-        top = rightreg(rbnd)
+        val bot = leftreg(lbnd)
+        val top = rightreg(rbnd)
         val v = Site(lbnd.vertex, nvertices)
         nvertices += 1
 
         endpoint(lbnd.ELedge, lbnd.ELpm, v, maxBox)
         endpoint(rbnd.ELedge, rbnd.ELpm, v, maxBox)
-        lbnd.delete()
         pqHash.pQdelete(rbnd)
-        rbnd.delete()
-        val pm = if (bot.coord.y > top.coord.y) {
-          temp = bot
-          bot = top
-          top = temp
-          RE
-        } else {
-          LE
-        }
-        val e = bisect(bot, top)
+        val (pm, e) = if (bot.coord.y > top.coord.y) (RE, bisect(top, bot)) else (LE, bisect(bot, top))
         val bisector = Halfedge.create(e, pm)
         llbnd.insert(bisector)
         endpoint(e, pm.inverse, v, maxBox)
