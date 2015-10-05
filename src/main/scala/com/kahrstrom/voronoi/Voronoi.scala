@@ -50,7 +50,7 @@ class Edge(val a: Double, val b: Double, val c: Double, val regL: Site, val regR
   }
 }
 
-class GraphEdge(val x1: Double, val y1: Double, val x2: Double, val y2: Double, val site1: Int, val site2: Int)
+case class GraphEdge(val x1: Double, val y1: Double, val x2: Double, val y2: Double, val site1: Int, val site2: Int)
 
 class Halfedge(val ELpm: Side) {
   var ELleft: Halfedge = null
@@ -435,9 +435,6 @@ class Voronoi(minDistanceBetweenSites: Double) {
 
   private def clip_line(e: Edge, maxBox: Box): Option[GraphEdge] = {
     val (s1, s2): (Site, Site) = if (e.a == 1.0 && e.b >= 0.0) (e.endPoints(1), e.endPoints(0)) else (e.endPoints(0), e.endPoints(1))
-    if (e.regL.sitenbr == 3 && e.regR.sitenbr == 4) {
-      println("Test!")
-    }
     var x1: Double = e.regL.coord.x
     var x2: Double = e.regR.coord.x
     var y1: Double = e.regL.coord.y
@@ -454,9 +451,9 @@ class Voronoi(minDistanceBetweenSites: Double) {
         maxBox.minY
       }
       x1 = e.c - e.b * y1
-      y2 = if (s2 != null && s2.coord.y < maxBox.maxY) {
+      y2 = if (s2 != null && s2.coord.y >= maxBox.minY && s2.coord.y < maxBox.maxY) {
         s2.coord.y
-      } else if (y2 < maxBox.minY) {
+      } else if (s2 != null && s2.coord.y < maxBox.minY) {
         maxBox.minY
       } else {
         maxBox.maxY
@@ -491,9 +488,9 @@ class Voronoi(minDistanceBetweenSites: Double) {
         maxBox.minX
       }
       y1 = e.c - e.a * x1
-      x2 = if (s2 != null && s2.coord.x < maxBox.maxX) {
+      x2 = if (s2 != null && s2.coord.x >= maxBox.minX && s2.coord.x < maxBox.maxX) {
         s2.coord.x
-      } else if (x2 < maxBox.minX) {
+      } else if (s2 != null && s2.coord.x < maxBox.minX) {
         maxBox.minX
       } else {
         maxBox.maxX
