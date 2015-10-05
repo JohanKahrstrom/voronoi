@@ -1,5 +1,6 @@
 package com.kahrstrom.voronoi
 
+import scala.annotation.tailrec
 import scala.util.Random
 
 /*
@@ -71,10 +72,10 @@ class Halfedge(val ELpm: Side) {
 }
 
 object Halfedge {
-  def create(e: Edge, pm: Side): Halfedge = {
+  def create(edge: Edge, pm: Side): Halfedge = {
     var answer: Halfedge = null
     answer = new Halfedge(pm)
-    answer.ELedge = e
+    answer.ELedge = edge
     answer.PQnext = null
     answer.vertex = null
     answer
@@ -120,9 +121,9 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
   private val PQhashsize: Int = 4 * sqrt_nsites
   private val PQhash: Array[Halfedge] = new Array[Halfedge](PQhashsize).map(e => new Halfedge(UnusedSide))
 
-  private def pQbucket(he: Halfedge): Int = {
+  private def pQbucket(ystar: Double): Int = {
     var bucket: Int = 0
-    bucket = ((he.ystar - boundingBox.minY) / (boundingBox.maxY - boundingBox.minY) * PQhashsize).toInt
+    bucket = ((ystar - boundingBox.minY) / (boundingBox.maxY - boundingBox.minY) * PQhashsize).toInt
     if (bucket < 0) {
       bucket = 0
     }
@@ -138,8 +139,8 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
   def pQdelete(he: Halfedge) {
     var last: Halfedge = null
     if (he.vertex != null) {
-      last = PQhash(pQbucket(he))
-      while (last.PQnext ne he) {
+      last = PQhash(pQbucket(he.ystar))
+      while (last.PQnext != he) {
         last = last.PQnext
       }
       last.PQnext = he.PQnext
@@ -156,7 +157,7 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
     var next: Halfedge = null
     he.vertex = v
     he.ystar = v.y + offset
-    last = PQhash(pQbucket(he))
+    last = PQhash(pQbucket(he.ystar))
     while ( {
       next = last.PQnext
       next
@@ -221,8 +222,7 @@ class ELt(sqrt_nsites: Int, boundingBox: Box) {
     bucket = ((p.x - boundingBox.minY) / (boundingBox.maxX - boundingBox.minX) * ELhashsize).toInt
     if (bucket < 0) {
       bucket = 0
-    }
-    if (bucket >= ELhashsize) {
+    } else if (bucket >= ELhashsize) {
       bucket = ELhashsize - 1
     }
     he = get(bucket)
@@ -302,7 +302,6 @@ class Voronoi(minDistanceBetweenSites: Double) {
   private var siteidx: Int = 0
   private var nvertices: Int = 0
   private var sites: Array[Site] = null
-  private var bottomsite: Site = null
   private var allEdges: java.util.List[GraphEdge] = null
 
   /** *******************************************************
@@ -353,12 +352,12 @@ class Voronoi(minDistanceBetweenSites: Double) {
     val xValues: Array[Double] = new Array[Double](count)
     val yValues: Array[Double] = new Array[Double](count)
 
-      var i: Int = 0
-      while (i < count) {
-        xValues(i) = xValuesIn(i)
-        yValues(i) = yValuesIn(i)
-        i += 1
-      }
+    var i: Int = 0
+    while (i < count) {
+      xValues(i) = xValuesIn(i)
+      yValues(i) = yValuesIn(i)
+      i += 1
+    }
 
     sortNode(xValues, yValues, count)
   }
@@ -409,18 +408,22 @@ class Voronoi(minDistanceBetweenSites: Double) {
     } else null
   }
 
-  private def bisect(s1: Site, s2: Site): Edge = {
+  /*
+   * Generates the line separating s1 and s2 on the form
+   * ax + bx + c = 0.
+   */
+  private def separate(s1: Site, s2: Site): Edge = {
     val dx: Double = s2.coord.x - s1.coord.x
     val dy: Double = s2.coord.y - s1.coord.y
-    val adx: Double = if (dx > 0) dx else -dx
-    val ady: Double = if (dy > 0) dy else -dy
+    val adx: Double = Math.abs(dx)
+    val ady: Double = Math.abs(dy)
 
     val tc = s1.coord.x * dx + s1.coord.y * dy + (dx * dx + dy * dy) * 0.5
     val (a, b, c) = if (adx > ady) (1.0, dy / dx, tc / dx) else (dx / dy, 1.0, tc / dy)
     new Edge(a, b, c, s1, s2)
   }
 
-  private def leftreg(he: Halfedge): Site = {
+  private def leftreg(he: Halfedge, bottomsite: Site): Site = {
     if (he.ELedge == null) bottomsite
     else if (he.ELpm == LE) he.ELedge.regL
     else he.ELedge.regR
@@ -434,7 +437,7 @@ class Voronoi(minDistanceBetweenSites: Double) {
     Math.sqrt(norm2(x1, y1, x2, y2))
   }
 
-  private def clip_line(e: Edge, maxBox: Box): Option[GraphEdge] = {
+  private def clip_line(e: Edge, box: Box): Option[GraphEdge] = {
     val (s1, s2): (Site, Site) = if (e.a == 1.0 && e.b >= 0.0) (e.endPoints(1), e.endPoints(0)) else (e.endPoints(0), e.endPoints(1))
     var x1: Double = e.regL.coord.x
     var x2: Double = e.regR.coord.x
@@ -444,74 +447,74 @@ class Voronoi(minDistanceBetweenSites: Double) {
       return None
     }
     if (e.a == 1.0) {
-      y1 = if (s1 != null && s1.coord.y > maxBox.minY) {
+      y1 = if (s1 != null && s1.coord.y > box.minY) {
         s1.coord.y
-      } else if (y1 > maxBox.maxY) {
-        maxBox.maxY
+      } else if (y1 > box.maxY) {
+        box.maxY
       } else {
-        maxBox.minY
+        box.minY
       }
       x1 = e.c - e.b * y1
-      y2 = if (s2 != null && s2.coord.y < maxBox.maxY) {
+      y2 = if (s2 != null && s2.coord.y < box.maxY) {
         s2.coord.y
-      } else if (y2 < maxBox.minY) {
-        maxBox.minY
+      } else if (y2 < box.minY) {
+        box.minY
       } else {
-        maxBox.maxY
+        box.maxY
       }
       x2 = e.c - e.b * y2
-      if (((x1 > maxBox.maxX) & (x2 > maxBox.maxX)) | ((x1 < maxBox.minX) & (x2 < maxBox.minX))) {
+      if (((x1 > box.maxX) & (x2 > box.maxX)) | ((x1 < box.minX) & (x2 < box.minX))) {
         return None
       }
-      if (x1 > maxBox.maxX) {
-        x1 = maxBox.maxX
+      if (x1 > box.maxX) {
+        x1 = box.maxX
         y1 = (e.c - x1) / e.b
       }
-      if (x1 < maxBox.minX) {
-        x1 = maxBox.minX
+      if (x1 < box.minX) {
+        x1 = box.minX
         y1 = (e.c - x1) / e.b
       }
-      if (x2 > maxBox.maxX) {
-        x2 = maxBox.maxX
+      if (x2 > box.maxX) {
+        x2 = box.maxX
         y2 = (e.c - x2) / e.b
       }
-      if (x2 < maxBox.minX) {
-        x2 = maxBox.minX
+      if (x2 < box.minX) {
+        x2 = box.minX
         y2 = (e.c - x2) / e.b
       }
     }
     else {
-      x1 = if (s1 != null && s1.coord.x > maxBox.minX) {
+      x1 = if (s1 != null && s1.coord.x > box.minX) {
         s1.coord.x
-      } else if (x1 > maxBox.maxX) {
-        maxBox.maxX
+      } else if (x1 > box.maxX) {
+        box.maxX
       } else {
-        maxBox.minX
+        box.minX
       }
       y1 = e.c - e.a * x1
-      x2 = if (s2 != null && s2.coord.x < maxBox.maxX) {
+      x2 = if (s2 != null && s2.coord.x < box.maxX) {
         s2.coord.x
-      } else if (x2 < maxBox.minX) {
-        maxBox.minX
+      } else if (x2 < box.minX) {
+        box.minX
       } else {
-        maxBox.maxX
+        box.maxX
       }
       y2 = e.c - e.a * x2
-      if (((y1 > maxBox.maxY) & (y2 > maxBox.maxY)) | ((y1 < maxBox.minY) & (y2 < maxBox.minY))) {
+      if (((y1 > box.maxY) & (y2 > box.maxY)) | ((y1 < box.minY) & (y2 < box.minY))) {
         return None
       }
-      if (y1 > maxBox.maxY) {
-        y1 = maxBox.maxY
+      if (y1 > box.maxY) {
+        y1 = box.maxY
         x1 = (e.c - y1) / e.a
-      } else if (y1 < maxBox.minY) {
-        y1 = maxBox.minY
+      } else if (y1 < box.minY) {
+        y1 = box.minY
         x1 = (e.c - y1) / e.a
       }
-      if (y2 > maxBox.maxY) {
-        y2 = maxBox.maxY
+      if (y2 > box.maxY) {
+        y2 = box.maxY
         x2 = (e.c - y2) / e.a
-      } else if (y2 < maxBox.minY) {
-        y2 = maxBox.minY
+      } else if (y2 < box.minY) {
+        y2 = box.minY
         x2 = (e.c - y2) / e.a
       }
     }
@@ -526,7 +529,7 @@ class Voronoi(minDistanceBetweenSites: Double) {
     clip_line(e, boundingBox).foreach { graphEdge => allEdges.add(graphEdge) }
   }
 
-  private def rightreg(he: Halfedge): Site = {
+  private def rightreg(he: Halfedge, bottomsite: Site): Site = {
     if (he.ELedge == null) bottomsite
     else if (he.ELpm == LE) he.ELedge.regR else he.ELedge.regL
   }
@@ -556,12 +559,12 @@ class Voronoi(minDistanceBetweenSites: Double) {
     }
   }
 
-  private def voronoi_bd(sqrtNrSites: Int, nrSites: Int, maxBox: Box, boundingBox: Box): Boolean = {
+  private def voronoi_bd(sqrtNrSites: Int, nrSites: Int, maxBox: Box, boundingBox: Box): Unit = {
     var newsite: Site = null
     var newintstar: Point = null
     val pqHash: PQHash = new PQHash(sqrtNrSites, boundingBox)
     val el: ELt = new ELt(sqrtNrSites, boundingBox)
-    bottomsite = nextone(nrSites)
+    val bottomsite = nextone(nrSites)
     newsite = nextone(nrSites)
     var keepLooping = true
     while (keepLooping) {
@@ -569,19 +572,19 @@ class Voronoi(minDistanceBetweenSites: Double) {
         newintstar = pqHash.pQ_min
       }
       if (newsite != null && (pqHash.pQempty || newsite.coord.y < newintstar.y || (newsite.coord.y == newintstar.y && newsite.coord.x < newintstar.x))) {
-        val lbnd = el.leftbnd(newsite.coord)
-        val rbnd = lbnd.ELright
-        val bot = rightreg(lbnd)
-        val e = bisect(bot, newsite)
-        val bisector = Halfedge.create(e, LE)
-        lbnd.insert(bisector)
-        intersect(lbnd, bisector).foreach { p =>
-          pqHash.pQdelete(lbnd)
-          pqHash.pQinsert(lbnd, p, p.dist(newsite.coord))
+        val leftBound: Halfedge = el.leftbnd(newsite.coord)
+        val rightBound: Halfedge = leftBound.ELright
+        val bottom: Site = rightreg(leftBound, bottomsite)
+        val edge: Edge = separate(bottom, newsite)
+        val bisector = Halfedge.create(edge, LE)
+        leftBound.insert(bisector)
+        intersect(leftBound, bisector).foreach { p =>
+          pqHash.pQdelete(leftBound)
+          pqHash.pQinsert(leftBound, p, p.dist(newsite.coord))
         }
-        val bisector2 = Halfedge.create(e, RE)
+        val bisector2 = Halfedge.create(edge, RE)
         bisector.insert(bisector2)
-        intersect(bisector2, rbnd).foreach { p =>
+        intersect(bisector2, rightBound).foreach { p =>
           pqHash.pQinsert(bisector2, p, p.dist(newsite.coord))
         }
         newsite = nextone(nrSites)
@@ -590,15 +593,15 @@ class Voronoi(minDistanceBetweenSites: Double) {
         val llbnd = lbnd.ELleft
         val rbnd = lbnd.ELright
         val rrbnd = rbnd.ELright
-        val bot = leftreg(lbnd)
-        val top = rightreg(rbnd)
+        val bot = leftreg(lbnd, bottomsite)
+        val top = rightreg(rbnd, bottomsite)
         val v = Site(lbnd.vertex, nvertices)
         nvertices += 1
 
         endpoint(lbnd.ELedge, lbnd.ELpm, v, maxBox)
         endpoint(rbnd.ELedge, rbnd.ELpm, v, maxBox)
         pqHash.pQdelete(rbnd)
-        val (pm, e) = if (bot.coord.y > top.coord.y) (RE, bisect(top, bot)) else (LE, bisect(bot, top))
+        val (pm, e) = if (bot.coord.y > top.coord.y) (RE, separate(top, bot)) else (LE, separate(bot, top))
         val bisector = Halfedge.create(e, pm)
         llbnd.insert(bisector)
         endpoint(e, pm.inverse, v, maxBox)
@@ -613,13 +616,16 @@ class Voronoi(minDistanceBetweenSites: Double) {
         keepLooping = false
       }
     }
-      var lbnd = el.ELleftend.ELright
-      while (lbnd != el.ELrightend) {
-        {
-          clip_line(lbnd.ELedge, maxBox).foreach(graphEdge => allEdges.add(graphEdge))
-        }
-        lbnd = lbnd.ELright
+
+    @tailrec
+    def addRemaining(left: Halfedge): Unit = {
+      if (left == el.ELrightend) ()
+      else {
+        clip_line(left.ELedge, maxBox).foreach(graphEdge => allEdges.add(graphEdge))
+        addRemaining(left.ELright)
+      }
     }
-    true
+
+    addRemaining(el.ELleftend.ELright)
   }
 }
