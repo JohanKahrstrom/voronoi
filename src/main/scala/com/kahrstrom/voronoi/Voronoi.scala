@@ -41,7 +41,6 @@ import scala.util.Random
  * REPRESENTATION OR WARRANTY OF ANY KIND CONCERNING THE MERCHANTABILITY
  * OF THIS SOFTWARE OR ITS FITNESS FOR ANY PARTICULAR PURPOSE.
  */
-/* Scala version by Johan Kåhrstrom, same permissions as above */
 
 class Edge(val a: Double, val b: Double, val c: Double, val regL: Site, val regR: Site) {
   var endPoints: Array[Site] = new Array[Site](2)
@@ -51,7 +50,7 @@ class Edge(val a: Double, val b: Double, val c: Double, val regL: Site, val regR
   }
 }
 
-class GraphEdge(val x1: Double, val y1: Double, val x2: Double, val y2: Double, val site1: Int, val site2: Int)
+case class GraphEdge(val x1: Double, val y1: Double, val x2: Double, val y2: Double, val site1: Int, val site2: Int)
 
 class Halfedge(val ELpm: Side) {
   var ELleft: Halfedge = null
@@ -67,6 +66,12 @@ class Halfedge(val ELpm: Side) {
     newHe.ELright = this.ELright
     this.ELright.ELleft = newHe
     this.ELright = newHe
+  }
+
+  def delete(): Unit = {
+    ELleft.ELright = ELright
+    ELright.ELleft = ELleft
+    deleted = true
   }
 }
 
@@ -146,9 +151,6 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
       PQcount -= 1
       he.vertex = null
     }
-    he.ELleft.ELright = he.ELright
-    he.ELright.ELleft = he.ELleft
-    he.deleted = true
   }
 
   def pQinsert(he: Halfedge, v: Point, offset: Double) {
@@ -182,9 +184,6 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
     curr = PQhash(PQmin).PQnext
     PQhash(PQmin).PQnext = curr.PQnext
     PQcount -= 1
-    curr.ELleft.ELright = curr.ELright
-    curr.ELright.ELleft = curr.ELleft
-    curr.deleted = true
     curr
   }
 }
@@ -353,12 +352,12 @@ class Voronoi(minDistanceBetweenSites: Double) {
     val xValues: Array[Double] = new Array[Double](count)
     val yValues: Array[Double] = new Array[Double](count)
 
-      var i: Int = 0
-      while (i < count) {
-        xValues(i) = xValuesIn(i)
-        yValues(i) = yValuesIn(i)
-        i += 1
-      }
+    var i: Int = 0
+    while (i < count) {
+      xValues(i) = xValuesIn(i)
+      yValues(i) = yValuesIn(i)
+      i += 1
+    }
 
     sortNode(xValues, yValues, count)
   }
@@ -444,17 +443,17 @@ class Voronoi(minDistanceBetweenSites: Double) {
       return None
     }
     if (e.a == 1.0) {
-      y1 = if (s1 != null && s1.coord.y > maxBox.minY) {
+      y1 = if (s1 != null && s1.coord.y > maxBox.minY && s1.coord.y <= maxBox.maxY) {
         s1.coord.y
-      } else if (y1 > maxBox.maxY) {
+      } else if (s1 != null && s1.coord.y > maxBox.maxY) {
         maxBox.maxY
       } else {
         maxBox.minY
       }
       x1 = e.c - e.b * y1
-      y2 = if (s2 != null && s2.coord.y < maxBox.maxY) {
+      y2 = if (s2 != null && s2.coord.y >= maxBox.minY && s2.coord.y < maxBox.maxY) {
         s2.coord.y
-      } else if (y2 < maxBox.minY) {
+      } else if (s2 != null && s2.coord.y < maxBox.minY) {
         maxBox.minY
       } else {
         maxBox.maxY
@@ -481,17 +480,17 @@ class Voronoi(minDistanceBetweenSites: Double) {
       }
     }
     else {
-      x1 = if (s1 != null && s1.coord.x > maxBox.minX) {
+      x1 = if (s1 != null && s1.coord.x > maxBox.minX && s1.coord.x <= maxBox.maxX) {
         s1.coord.x
-      } else if (x1 > maxBox.maxX) {
+      } else if (s1 != null && s1.coord.x > maxBox.maxX) {
         maxBox.maxX
       } else {
         maxBox.minX
       }
       y1 = e.c - e.a * x1
-      x2 = if (s2 != null && s2.coord.x < maxBox.maxX) {
+      x2 = if (s2 != null && s2.coord.x >= maxBox.minX && s2.coord.x < maxBox.maxX) {
         s2.coord.x
-      } else if (x2 < maxBox.minX) {
+      } else if (s2 != null && s2.coord.x < maxBox.minX) {
         maxBox.minX
       } else {
         maxBox.maxX
@@ -558,6 +557,9 @@ class Voronoi(minDistanceBetweenSites: Double) {
 
   private def voronoi_bd(sqrtNrSites: Int, nrSites: Int, maxBox: Box, boundingBox: Box): Boolean = {
     var newsite: Site = null
+    var bot: Site = null
+    var top: Site = null
+    var temp: Site = null
     var newintstar: Point = null
     val pqHash: PQHash = new PQHash(sqrtNrSites, boundingBox)
     val el: ELt = new ELt(sqrtNrSites, boundingBox)
@@ -571,7 +573,7 @@ class Voronoi(minDistanceBetweenSites: Double) {
       if (newsite != null && (pqHash.pQempty || newsite.coord.y < newintstar.y || (newsite.coord.y == newintstar.y && newsite.coord.x < newintstar.x))) {
         val lbnd = el.leftbnd(newsite.coord)
         val rbnd = lbnd.ELright
-        val bot = rightreg(lbnd)
+        bot = rightreg(lbnd)
         val e = bisect(bot, newsite)
         val bisector = Halfedge.create(e, LE)
         lbnd.insert(bisector)
@@ -590,15 +592,25 @@ class Voronoi(minDistanceBetweenSites: Double) {
         val llbnd = lbnd.ELleft
         val rbnd = lbnd.ELright
         val rrbnd = rbnd.ELright
-        val bot = leftreg(lbnd)
-        val top = rightreg(rbnd)
+        bot = leftreg(lbnd)
+        top = rightreg(rbnd)
         val v = Site(lbnd.vertex, nvertices)
         nvertices += 1
 
         endpoint(lbnd.ELedge, lbnd.ELpm, v, maxBox)
         endpoint(rbnd.ELedge, rbnd.ELpm, v, maxBox)
+        lbnd.delete()
         pqHash.pQdelete(rbnd)
-        val (pm, e) = if (bot.coord.y > top.coord.y) (RE, bisect(top, bot)) else (LE, bisect(bot, top))
+        rbnd.delete()
+        val pm = if (bot.coord.y > top.coord.y) {
+          temp = bot
+          bot = top
+          top = temp
+          RE
+        } else {
+          LE
+        }
+        val e = bisect(bot, top)
         val bisector = Halfedge.create(e, pm)
         llbnd.insert(bisector)
         endpoint(e, pm.inverse, v, maxBox)
@@ -613,12 +625,12 @@ class Voronoi(minDistanceBetweenSites: Double) {
         keepLooping = false
       }
     }
-      var lbnd = el.ELleftend.ELright
-      while (lbnd != el.ELrightend) {
-        {
-          clip_line(lbnd.ELedge, maxBox).foreach(graphEdge => allEdges.add(graphEdge))
-        }
-        lbnd = lbnd.ELright
+    var lbnd = el.ELleftend.ELright
+    while (lbnd != el.ELrightend) {
+      {
+        clip_line(lbnd.ELedge, maxBox).foreach(graphEdge => allEdges.add(graphEdge))
+      }
+      lbnd = lbnd.ELright
     }
     true
   }
