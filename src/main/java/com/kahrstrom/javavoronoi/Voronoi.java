@@ -562,10 +562,6 @@ public class Voronoi
         Site s1, s2;
         double x1 = 0, x2 = 0, y1 = 0, y2 = 0;
 
-        if (e.reg[0].sitenbr == 3 && e.reg[1].sitenbr == 4) {
-            System.out.println("Test!");
-        }
-
         x1 = e.reg[0].coord.x;
         x2 = e.reg[1].coord.x;
         y1 = e.reg[0].coord.y;

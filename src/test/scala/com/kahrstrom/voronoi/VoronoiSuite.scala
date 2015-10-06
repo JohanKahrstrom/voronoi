@@ -97,30 +97,34 @@ class VoronoiSuite extends FlatSpec with Matchers {
     val jvoronoi = new javavoronoi.Voronoi(0.00001)
     val voronoi = new Voronoi(0.00001)
 
-    val jxs = generateValues(10)
-    val jys = generateValues(10)
-    val xs = copyValues(jxs)
-    val ys = copyValues(jys)
+    for (i <- (0 to 10)) {
+      val jxs = generateValues(10)
+      val jys = generateValues(10)
+      val xs = copyValues(jxs)
+      val ys = copyValues(jys)
 
-    val jret: Seq[javavoronoi.GraphEdge] = jvoronoi.generateVoronoi(jxs, jys, -2.0, 2.0, -2.0, 2.0).toSeq
-    val ret = voronoi.generateVoronoi(xs, ys, -2.0, 2.0, -2.0, 2.0).toSeq
+      val jret: Seq[javavoronoi.GraphEdge] = jvoronoi.generateVoronoi(jxs, jys, -2.0, 2.0, -2.0, 2.0).toSeq
+      val ret = voronoi.generateVoronoi(xs, ys, -2.0, 2.0, -2.0, 2.0).toSeq
 
-    convertToSimpleEdges(jret.map(convertToScala)) should be (convertToSimpleEdges(ret))
+      convertToSimpleEdges(jret.map(convertToScala)) should be (convertToSimpleEdges(ret))
+    }
   }
 
   it should "generate same edges as Java original on 100 points" in {
     val jvoronoi = new javavoronoi.Voronoi(0.00001)
     val voronoi = new Voronoi(0.00001)
 
-    val jxs = generateValues(100)
-    val jys = generateValues(100)
-    val xs = copyValues(jxs)
-    val ys = copyValues(jys)
+    for (i <- (0 to 10)) {
+      val jxs = generateValues(100)
+      val jys = generateValues(100)
+      val xs = copyValues(jxs)
+      val ys = copyValues(jys)
 
-    val jret: Seq[javavoronoi.GraphEdge] = jvoronoi.generateVoronoi(jxs, jys, -2.0, 2.0, -2.0, 2.0).toSeq
-    val ret = voronoi.generateVoronoi(xs, ys, -2.0, 2.0, -2.0, 2.0).toSeq
+      val jret: Seq[javavoronoi.GraphEdge] = jvoronoi.generateVoronoi(jxs, jys, -2.0, 2.0, -2.0, 2.0).toSeq
+      val ret = voronoi.generateVoronoi(xs, ys, -2.0, 2.0, -2.0, 2.0).toSeq
 
-    convertToSimpleEdges(jret.map(convertToScala)) should be (convertToSimpleEdges(ret))
+      convertToSimpleEdges(jret.map(convertToScala)) should be(convertToSimpleEdges(ret))
+    }
   }
 
   it should "generate same edges as Java original on 1000 points" in {
