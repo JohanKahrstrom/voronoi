@@ -85,11 +85,21 @@ object Halfedge {
 }
 
 case class Point(x: Double, y: Double) {
-  def dist(other: Point): Double = {
-    val dx: Double = x - other.x
-    val dy: Double = y - other.y
-    Math.sqrt(dx * dx + dy * dy)
+  def +(other: Point): Point = {
+    Point(x + other.x, y + other.y)
   }
+
+  def -(other: Point): Point = {
+    Point(x - other.x, y - other.y)
+  }
+
+  def *(that: Point): Double = x * that.x + y * that.y
+
+  def norm2: Double = this * this
+
+  def norm: Double = Math.sqrt(norm2)
+
+  def dist(that: Point): Double = (this - that).norm
 }
 
 case class Site(coord: Point, siteIndex: Int)
@@ -395,13 +405,14 @@ class Voronoi(minDistanceBetweenSites: Double) {
   }
 
   private def bisect(s1: Site, s2: Site): Edge = {
-    val dx: Double = s2.coord.x - s1.coord.x
-    val dy: Double = s2.coord.y - s1.coord.y
-    val adx: Double = if (dx > 0) dx else -dx
-    val ady: Double = if (dy > 0) dy else -dy
+    val d = s2.coord - s1.coord
+    val adx: Double = Math.abs(d.x)
+    val ady: Double = Math.abs(d.y)
 
-    val tc = s1.coord.x * dx + s1.coord.y * dy + (dx * dx + dy * dy) * 0.5
-    val (a, b, c) = if (adx > ady) (1.0, dy / dx, tc / dx) else (dx / dy, 1.0, tc / dy)
+    val ta = d.x
+    val tb = d.y
+    val tc = s1.coord * d + d.norm2 * 0.5
+    val (a, b, c) = if (adx > ady) (ta / d.x, tb / d.x, tc / d.x) else (ta / d.y, tb / d.y, tc / d.y)
     new Edge(a, b, c, s1, s2)
   }
 
