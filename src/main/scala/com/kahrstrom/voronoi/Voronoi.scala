@@ -213,33 +213,31 @@ class ELt(sqrt_nsites: Int, boundingBox: Box) {
 
   private def get(b: Int): Halfedge = {
     val he: Halfedge = ELhash(b)
-    if (b < 0 || b >= ELhashsize) null
-    else if (he == null || !he.deleted) he
+    if (he == null || !he.deleted) he
     else {
       ELhash(b) = null
       null
     }
   }
 
+  def getBucket(p: Point): Int = {
+    val bucket = ((p.x - boundingBox.minY) / (boundingBox.maxX - boundingBox.minX) * ELhashsize).toInt
+    if (bucket < 0) 0
+    else if (bucket >= ELhashsize) ELhashsize - 1
+    else bucket
+  }
+
   def leftbnd(p: Point): Halfedge = {
     var i: Int = 0
-    var bucket: Int = 0
+    val bucket: Int = getBucket(p)
     var he: Halfedge = null
-    bucket = ((p.x - boundingBox.minY) / (boundingBox.maxX - boundingBox.minX) * ELhashsize).toInt
-    if (bucket < 0) {
-      bucket = 0
-    } else if (bucket >= ELhashsize) {
-      bucket = ELhashsize - 1
-    }
     he = get(bucket)
     if (he == null) {
-      {
-        i = 1
-        while (i < ELhashsize && he == null) {
-          if (get(bucket - i) != null) he = get(bucket - i)
-          else if (get(bucket + i) != null) he = get(bucket + i)
-          i += 1
-        }
+      i = 1
+      while (i < ELhashsize && he == null) {
+        if (get(bucket - i) != null) he = get(bucket - i)
+        else if (get(bucket + i) != null) he = get(bucket + i)
+        i += 1
       }
     }
     if (he == ELleftend || (he != ELrightend && right_of(he, p))) {
@@ -519,7 +517,7 @@ class Voronoi(minDistanceBetweenSites: Double) {
     Some(new GraphEdge(x1, y1, x2, y2, e.regL.siteIndex, e.regR.siteIndex))
   }
 
-  private def endpoint(e: Edge, lr: Side, s: Site, boundingBox: Box) {
+  private def endpoint(e: Edge, lr: Side, s: Site, boundingBox: Box): Unit = {
     e.endPoints(lr.index) = s
     if (e.endPoints(lr.inverse.index) == null) {
       return
