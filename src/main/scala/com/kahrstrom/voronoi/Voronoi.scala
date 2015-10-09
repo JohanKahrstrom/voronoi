@@ -85,11 +85,21 @@ object Halfedge {
 }
 
 case class Point(x: Double, y: Double) {
-  def dist(other: Point): Double = {
-    val dx: Double = x - other.x
-    val dy: Double = y - other.y
-    Math.sqrt(dx * dx + dy * dy)
+  def +(other: Point): Point = {
+    Point(x + other.x, y + other.y)
   }
+
+  def -(other: Point): Point = {
+    Point(x - other.x, y - other.y)
+  }
+
+  def *(that: Point): Double = x * that.x + y * that.y
+
+  def norm2: Double = this * this
+
+  def norm: Double = Math.sqrt(norm2)
+
+  def dist(that: Point): Double = (this - that).norm
 }
 
 case class Site(coord: Point, siteIndex: Int)
@@ -203,33 +213,31 @@ class ELt(sqrt_nsites: Int, boundingBox: Box) {
 
   private def get(b: Int): Halfedge = {
     val he: Halfedge = ELhash(b)
-    if (b < 0 || b >= ELhashsize) null
-    else if (he == null || !he.deleted) he
+    if (he == null || !he.deleted) he
     else {
       ELhash(b) = null
       null
     }
   }
 
+  def getBucket(p: Point): Int = {
+    val bucket = ((p.x - boundingBox.minY) / (boundingBox.maxX - boundingBox.minX) * ELhashsize).toInt
+    if (bucket < 0) 0
+    else if (bucket >= ELhashsize) ELhashsize - 1
+    else bucket
+  }
+
   def leftbnd(p: Point): Halfedge = {
     var i: Int = 0
-    var bucket: Int = 0
+    val bucket: Int = getBucket(p)
     var he: Halfedge = null
-    bucket = ((p.x - boundingBox.minY) / (boundingBox.maxX - boundingBox.minX) * ELhashsize).toInt
-    if (bucket < 0) {
-      bucket = 0
-    } else if (bucket >= ELhashsize) {
-      bucket = ELhashsize - 1
-    }
     he = get(bucket)
     if (he == null) {
-      {
-        i = 1
-        while (i < ELhashsize && he == null) {
-          if (get(bucket - i) != null) he = get(bucket - i)
-          else if (get(bucket + i) != null) he = get(bucket + i)
-          i += 1
-        }
+      i = 1
+      while (i < ELhashsize && he == null) {
+        if (get(bucket - i) != null) he = get(bucket - i)
+        else if (get(bucket + i) != null) he = get(bucket + i)
+        i += 1
       }
     }
     if (he == ELleftend || (he != ELrightend && right_of(he, p))) {
@@ -395,13 +403,14 @@ class Voronoi(minDistanceBetweenSites: Double) {
   }
 
   private def bisect(s1: Site, s2: Site): Edge = {
-    val dx: Double = s2.coord.x - s1.coord.x
-    val dy: Double = s2.coord.y - s1.coord.y
-    val adx: Double = if (dx > 0) dx else -dx
-    val ady: Double = if (dy > 0) dy else -dy
+    val d = s2.coord - s1.coord
+    val adx: Double = Math.abs(d.x)
+    val ady: Double = Math.abs(d.y)
 
-    val tc = s1.coord.x * dx + s1.coord.y * dy + (dx * dx + dy * dy) * 0.5
-    val (a, b, c) = if (adx > ady) (1.0, dy / dx, tc / dx) else (dx / dy, 1.0, tc / dy)
+    val ta = d.x
+    val tb = d.y
+    val tc = s1.coord * d + d.norm2 * 0.5
+    val (a, b, c) = if (adx > ady) (ta / d.x, tb / d.x, tc / d.x) else (ta / d.y, tb / d.y, tc / d.y)
     new Edge(a, b, c, s1, s2)
   }
 
@@ -508,7 +517,7 @@ class Voronoi(minDistanceBetweenSites: Double) {
     Some(new GraphEdge(x1, y1, x2, y2, e.regL.siteIndex, e.regR.siteIndex))
   }
 
-  private def endpoint(e: Edge, lr: Side, s: Site, boundingBox: Box) {
+  private def endpoint(e: Edge, lr: Side, s: Site, boundingBox: Box): Unit = {
     e.endPoints(lr.index) = s
     if (e.endPoints(lr.inverse.index) == null) {
       return
