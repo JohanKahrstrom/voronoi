@@ -48,6 +48,9 @@ class Edge(val a: Double, val b: Double, val c: Double, val regL: Site, val regR
   def discriminant(that: Edge): Double = {
     this.a * that.b - this.b * that.a
   }
+
+  def above(p: Point): Boolean = p.x * a + p.y * b > c
+  def below(p: Point): Boolean = p.x * a + p.y * b < c
 }
 
 case class GraphEdge(val x1: Double, val y1: Double, val x2: Double, val y2: Double, val site1: Int, val site2: Int)
@@ -257,48 +260,44 @@ class ELt(sqrt_nsites: Int, boundingBox: Box) {
   }
 
   private def right_of(el: Halfedge, p: Point): Boolean = {
+    def above(e: Edge, topsite: Site, right_of_site: Boolean): Boolean = {
+      if (e.a == 1.0) {
+        val dyp = p.y - topsite.coord.y
+        val dxp = p.x - topsite.coord.x
+        if ((!right_of_site & (e.b < 0.0)) | (right_of_site & (e.b >= 0.0))) {
+          val aa = dyp >= e.b * dxp
+          if (!aa) {
+            val dxs = topsite.coord.x - e.regL.coord.x
+            val a = e.b * (dxp * dxp - dyp * dyp) < dxs * dyp * (1.0 + 2.0 * dxp / dxs + e.b * e.b)
+            if (e.b < 0.0) !a
+            else a
+          } else aa
+        } else {
+          var a = e.above(p)
+          if (e.b < 0.0) a = !a
+          if (a) {
+            val dxs = topsite.coord.x - e.regL.coord.x
+            val a = e.b * (dxp * dxp - dyp * dyp) < dxs * dyp * (1.0 + 2.0 * dxp / dxs + e.b * e.b)
+            if (e.b < 0.0) !a
+            else a
+          } else a
+        }
+      } else {
+        val yl = e.c - e.a * p.x
+        val t1 = - yl + e.b * p.y
+        val t2 = p.x - topsite.coord.x
+        val t3 = yl - topsite.coord.y
+        t1 * t1 > t2 * t2 + t3 * t3
+      }
+    }
+
     val e: Edge = el.ELedge
     val topsite: Site = e.regR
     val right_of_site: Boolean = p.x > topsite.coord.x
-    var above: Boolean = false
-    if (right_of_site && el.ELpm == LE) {
-      return true
-    }
-    if (!right_of_site && el.ELpm == RE) {
-      return false
-    }
-    if (e.a == 1.0) {
-      val dyp = p.y - topsite.coord.y
-      val dxp = p.x - topsite.coord.x
-      var fast = false
-      if ((!right_of_site & (e.b < 0.0)) | (right_of_site & (e.b >= 0.0))) {
-        above = dyp >= e.b * dxp
-        fast = above
-      }
-      else {
-        above = p.x + p.y * e.b > e.c
-        if (e.b < 0.0) {
-          above = !above
-        }
-        if (!above) {
-          fast = true
-        }
-      }
-      if (!fast) {
-        val dxs = topsite.coord.x - e.regL.coord.x
-        above = e.b * (dxp * dxp - dyp * dyp) < dxs * dyp * (1.0 + 2.0 * dxp / dxs + e.b * e.b)
-        if (e.b < 0.0) {
-          above = !above
-        }
-      }
-    } else {
-      val yl = e.c - e.a * p.x
-      val t1 = p.y - yl
-      val t2 = p.x - topsite.coord.x
-      val t3 = yl - topsite.coord.y
-      above = t1 * t1 > t2 * t2 + t3 * t3
-    }
-    if (el.ELpm == LE) above else !above
+    if (right_of_site && el.ELpm == LE) true
+    else if (!right_of_site && el.ELpm == RE) false
+    else if (el.ELpm == LE) above(e, topsite, right_of_site)
+    else !above(e, topsite, right_of_site)
   }
 }
 
