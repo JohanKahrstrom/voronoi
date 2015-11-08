@@ -136,7 +136,7 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
   private val PQhashsize: Int = 4 * sqrt_nsites
   private val PQhash: Array[Halfedge] = new Array[Halfedge](PQhashsize).map(e => new Halfedge(UnusedSide))
 
-  private def pQbucket(he: Halfedge): Int = {
+  private def bucket(he: Halfedge): Int = {
     var bucket: Int = 0
     bucket = ((he.ystar - boundingBox.minY) / (boundingBox.maxY - boundingBox.minY) * PQhashsize).toInt
     if (bucket < 0) {
@@ -151,10 +151,10 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
     bucket
   }
 
-  def pQdelete(he: Halfedge) {
+  def delete(he: Halfedge) {
     var last: Halfedge = null
     if (he.vertex != null) {
-      last = PQhash(pQbucket(he))
+      last = PQhash(bucket(he))
       while (last.PQnext != he) {
         last = last.PQnext
       }
@@ -164,12 +164,12 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
     }
   }
 
-  def pQinsert(he: Halfedge, v: Point, offset: Double) {
+  def insert(he: Halfedge, v: Point, offset: Double) {
     var last: Halfedge = null
     var next: Halfedge = null
     he.vertex = v
     he.ystar = v.y + offset
-    last = PQhash(pQbucket(he))
+    last = PQhash(bucket(he))
     while ( {
       next = last.PQnext
       next
@@ -181,16 +181,16 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
     PQcount += 1
   }
 
-  def pQempty: Boolean = PQcount == 0
+  def isEmpty: Boolean = PQcount == 0
 
-  def pQ_min: Point = {
+  def min: Point = {
     while (PQhash(PQmin).PQnext == null) {
       PQmin += 1
     }
     Point(PQhash(PQmin).PQnext.vertex.x, PQhash(PQmin).PQnext.ystar)
   }
 
-  def PQextractmin: Halfedge = {
+  def extractmin: Halfedge = {
     var curr: Halfedge = null
     curr = PQhash(PQmin).PQnext
     PQhash(PQmin).PQnext = curr.PQnext
@@ -561,10 +561,10 @@ class Voronoi(minDistanceBetweenSites: Double) {
     newsite = siteIterator.next()
     var keepLooping = true
     while (keepLooping) {
-      if (!pqHash.pQempty) {
-        newintstar = pqHash.pQ_min
+      if (!pqHash.isEmpty) {
+        newintstar = pqHash.min
       }
-      if (newsite != null && (pqHash.pQempty || newsite.coord.y < newintstar.y || (newsite.coord.y == newintstar.y && newsite.coord.x < newintstar.x))) {
+      if (newsite != null && (pqHash.isEmpty || newsite.coord.y < newintstar.y || (newsite.coord.y == newintstar.y && newsite.coord.x < newintstar.x))) {
         val lbnd = el.leftbnd(newsite.coord)
         val rbnd = lbnd.ELright
         val bot: Site = rightreg(lbnd, bottomsite)
@@ -572,18 +572,18 @@ class Voronoi(minDistanceBetweenSites: Double) {
         val bisector = Halfedge.create(e, LE)
         lbnd.insert(bisector)
         intersect(lbnd, bisector).foreach { p =>
-          pqHash.pQdelete(lbnd)
-          pqHash.pQinsert(lbnd, p, p.dist(newsite.coord))
+          pqHash.delete(lbnd)
+          pqHash.insert(lbnd, p, p.dist(newsite.coord))
         }
         val bisector2 = Halfedge.create(e, RE)
         bisector.insert(bisector2)
         intersect(bisector2, rbnd).foreach { p =>
-          pqHash.pQinsert(bisector2, p, p.dist(newsite.coord))
+          pqHash.insert(bisector2, p, p.dist(newsite.coord))
         }
         if (siteIterator.hasNext) newsite = siteIterator.next()
         else newsite = null
-      } else if (!pqHash.pQempty) {
-        val lbnd = pqHash.PQextractmin
+      } else if (!pqHash.isEmpty) {
+        val lbnd = pqHash.extractmin
         val llbnd = lbnd.ELleft
         val rbnd = lbnd.ELright
         val rrbnd = rbnd.ELright
@@ -595,7 +595,7 @@ class Voronoi(minDistanceBetweenSites: Double) {
         endpoint(lbnd.ELedge, lbnd.ELpm, v, maxBox)
         endpoint(rbnd.ELedge, rbnd.ELpm, v, maxBox)
         lbnd.delete()
-        pqHash.pQdelete(rbnd)
+        pqHash.delete(rbnd)
         rbnd.delete()
         val pm = if (bot.coord.y > top.coord.y) {
           temp = bot
@@ -610,11 +610,11 @@ class Voronoi(minDistanceBetweenSites: Double) {
         llbnd.insert(bisector)
         endpoint(e, pm.inverse, v, maxBox)
         intersect(llbnd, bisector).foreach { p =>
-          pqHash.pQdelete(llbnd)
-          pqHash.pQinsert(llbnd, p, p.dist(bot.coord))
+          pqHash.delete(llbnd)
+          pqHash.insert(llbnd, p, p.dist(bot.coord))
         }
         intersect(bisector, rrbnd).foreach { p =>
-          pqHash.pQinsert(bisector, p, p.dist(bot.coord))
+          pqHash.insert(bisector, p, p.dist(bot.coord))
         }
       } else {
         keepLooping = false
