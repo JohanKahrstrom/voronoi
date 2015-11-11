@@ -55,7 +55,7 @@ class Edge(val a: Double, val b: Double, val c: Double, val regL: Site, val regR
 
 case class GraphEdge(val x1: Double, val y1: Double, val x2: Double, val y2: Double, val site1: Int, val site2: Int)
 
-class Halfedge(val ELpm: Side) {
+class Halfedge(val name: String, val ELpm: Side) {
   var ELleft: Halfedge = null
   var ELright: Halfedge = null
   var ELedge: Edge = null
@@ -81,7 +81,7 @@ class Halfedge(val ELpm: Side) {
 object Halfedge {
   def create(e: Edge, pm: Side): Halfedge = {
     var answer: Halfedge = null
-    answer = new Halfedge(pm)
+    answer = new Halfedge("create", pm)
     answer.ELedge = e
     answer
   }
@@ -134,7 +134,7 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
   private var PQcount: Int = 0
   private var PQmin: Int = 0
   private val PQhashsize: Int = 4 * sqrt_nsites
-  private val PQhash: Array[Halfedge] = new Array[Halfedge](PQhashsize).map(e => new Halfedge(UnusedSide))
+  private val PQhash: Array[Halfedge] = new Array[Halfedge](PQhashsize).map(e => new Halfedge("unused", UnusedSide))
 
   private def bucket(he: Halfedge): Int = {
     var bucket: Int = 0
