@@ -1,5 +1,6 @@
 package com.kahrstrom.voronoi
 
+import scala.annotation.tailrec
 import scala.util.Random
 
 /*
@@ -55,7 +56,7 @@ class Edge(val a: Double, val b: Double, val c: Double, val regL: Site, val regR
 
 case class GraphEdge(val x1: Double, val y1: Double, val x2: Double, val y2: Double, val site1: Int, val site2: Int)
 
-class Halfedge(val name: String, val ELpm: Side) {
+class Halfedge(val ELpm: Side) {
   var ELleft: Halfedge = null
   var ELright: Halfedge = null
   var ELedge: Edge = null
@@ -81,7 +82,7 @@ class Halfedge(val name: String, val ELpm: Side) {
 object Halfedge {
   def create(e: Edge, pm: Side): Halfedge = {
     var answer: Halfedge = null
-    answer = new Halfedge("create", pm)
+    answer = new Halfedge(pm)
     answer.ELedge = e
     answer
   }
@@ -122,11 +123,6 @@ object RE extends Side {
   val inverse: Side = LE
 }
 
-object UnusedSide extends Side {
-  val index: Int = -1
-  val inverse: Side = UnusedSide
-}
-
 case class Box(minX: Double, maxX: Double, minY: Double, maxY: Double)
 
 // Priority queue?
@@ -134,7 +130,7 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
   private var PQcount: Int = 0
   private var PQmin: Int = 0
   private val PQhashsize: Int = 4 * sqrt_nsites
-  private val PQhash: Array[Halfedge] = new Array[Halfedge](PQhashsize).map(e => new Halfedge("unused", UnusedSide))
+  private val PQhash: Array[Halfedge] = new Array[Halfedge](PQhashsize)
 
   private def bucket(he: Halfedge): Int = {
     var bucket: Int = 0
@@ -155,46 +151,68 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
     var last: Halfedge = null
     if (he.vertex != null) {
       last = PQhash(bucket(he))
-      while (last.PQnext != he) {
-        last = last.PQnext
+      if (last == he) PQhash(bucket(he)) = last.PQnext
+      else {
+        while (last.PQnext != he) {
+          last = last.PQnext
+        }
+        last.PQnext = he.PQnext
       }
-      last.PQnext = he.PQnext
       PQcount -= 1
       he.vertex = null
+      he.PQnext = null
     }
   }
 
   def insert(he: Halfedge, v: Point, offset: Double) {
+    import scala.collection.mutable
+    def isAfter(he2: Halfedge): Boolean = {
+      he.ystar > he2.ystar || (he.ystar == he2.ystar && v.x > he2.vertex.x)
+    }
+
+    if (he.PQnext != null) throw new Exception("Inserting he with PQnext!")
+
     var last: Halfedge = null
     var next: Halfedge = null
     he.vertex = v
     he.ystar = v.y + offset
     last = PQhash(bucket(he))
-    while ( {
-      next = last.PQnext
-      next
-    } != null && (he.ystar > next.ystar || (he.ystar == next.ystar && v.x > next.vertex.x))) {
-      last = next
+    if (last == null) {
+      PQhash(bucket(he)) = he
     }
-    he.PQnext = last.PQnext
-    last.PQnext = he
+    else if (!isAfter(last)) {
+      PQhash(bucket(he)) = he
+      he.PQnext = last
+    } else {
+      while ( {
+        next = last.PQnext
+        next
+      } != null && isAfter(next)) {
+        last = next
+      }
+      he.PQnext = last.PQnext
+      last.PQnext = he
+    }
     PQcount += 1
   }
 
   def isEmpty: Boolean = PQcount == 0
 
   def min: Point = {
-    while (PQhash(PQmin).PQnext == null) {
+    while (PQhash(PQmin) == null) {
       PQmin += 1
     }
-    Point(PQhash(PQmin).PQnext.vertex.x, PQhash(PQmin).PQnext.ystar)
+    val x = PQhash(PQmin).vertex.x
+    val ystar = PQhash(PQmin).ystar
+    Point(x, ystar)
   }
 
   def extractmin: Halfedge = {
     var curr: Halfedge = null
-    curr = PQhash(PQmin).PQnext
-    PQhash(PQmin).PQnext = curr.PQnext
+    curr = PQhash(PQmin)
+    PQhash(PQmin) = curr.PQnext
     PQcount -= 1
+    curr.PQnext = null
     curr
   }
 }
