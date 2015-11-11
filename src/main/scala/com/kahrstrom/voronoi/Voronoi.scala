@@ -1,5 +1,6 @@
 package com.kahrstrom.voronoi
 
+import scala.annotation.tailrec
 import scala.util.Random
 
 /*
@@ -55,10 +56,13 @@ class Edge(val a: Double, val b: Double, val c: Double, val regL: Site, val regR
 
 case class GraphEdge(val x1: Double, val y1: Double, val x2: Double, val y2: Double, val site1: Int, val site2: Int)
 
-class Halfedge(val name: String, val ELpm: Side) {
+class PQLink(val ELpm: Side) {
+
+}
+
+class Halfedge(val ELedge: Edge, val ELpm: Side) {
   var ELleft: Halfedge = null
   var ELright: Halfedge = null
-  var ELedge: Edge = null
   var deleted: Boolean = false
   var vertex: Point = null
   var ystar: Double = .0
@@ -75,15 +79,6 @@ class Halfedge(val name: String, val ELpm: Side) {
     ELleft.ELright = ELright
     ELright.ELleft = ELleft
     deleted = true
-  }
-}
-
-object Halfedge {
-  def create(e: Edge, pm: Side): Halfedge = {
-    var answer: Halfedge = null
-    answer = new Halfedge("create", pm)
-    answer.ELedge = e
-    answer
   }
 }
 
@@ -122,11 +117,6 @@ object RE extends Side {
   val inverse: Side = LE
 }
 
-object UnusedSide extends Side {
-  val index: Int = -1
-  val inverse: Side = UnusedSide
-}
-
 case class Box(minX: Double, maxX: Double, minY: Double, maxY: Double)
 
 // Priority queue?
@@ -134,7 +124,7 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
   private var PQcount: Int = 0
   private var PQmin: Int = 0
   private val PQhashsize: Int = 4 * sqrt_nsites
-  private val PQhash: Array[Halfedge] = new Array[Halfedge](PQhashsize).map(e => new Halfedge("unused", UnusedSide))
+  private val PQhash: Array[Halfedge] = new Array[Halfedge](PQhashsize)
 
   private def bucket(he: Halfedge): Int = {
     var bucket: Int = 0
@@ -155,46 +145,65 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
     var last: Halfedge = null
     if (he.vertex != null) {
       last = PQhash(bucket(he))
-      while (last.PQnext != he) {
-        last = last.PQnext
+      if (last == he) PQhash(bucket(he)) = last.PQnext
+      else {
+        while (last.PQnext != he) {
+          last = last.PQnext
+        }
+        last.PQnext = he.PQnext
       }
-      last.PQnext = he.PQnext
       PQcount -= 1
       he.vertex = null
+      he.PQnext = null
     }
   }
 
   def insert(he: Halfedge, v: Point, offset: Double) {
+    def isAfter(he2: Halfedge): Boolean = {
+      he.ystar > he2.ystar || (he.ystar == he2.ystar && v.x > he2.vertex.x)
+    }
+
+    if (he.PQnext != null) throw new Exception("Inserting he with PQnext!")
+
     var last: Halfedge = null
     var next: Halfedge = null
     he.vertex = v
     he.ystar = v.y + offset
     last = PQhash(bucket(he))
-    while ( {
-      next = last.PQnext
-      next
-    } != null && (he.ystar > next.ystar || (he.ystar == next.ystar && v.x > next.vertex.x))) {
-      last = next
+    if (last == null) {
+      PQhash(bucket(he)) = he
     }
-    he.PQnext = last.PQnext
-    last.PQnext = he
+    else if (!isAfter(last)) {
+      PQhash(bucket(he)) = he
+      he.PQnext = last
+    } else {
+      while ( {
+        next = last.PQnext
+        next
+      } != null && isAfter(next)) {
+        last = next
+      }
+      he.PQnext = last.PQnext
+      last.PQnext = he
+    }
     PQcount += 1
   }
 
   def isEmpty: Boolean = PQcount == 0
 
   def min: Point = {
-    while (PQhash(PQmin).PQnext == null) {
+    while (PQhash(PQmin) == null) {
       PQmin += 1
     }
-    Point(PQhash(PQmin).PQnext.vertex.x, PQhash(PQmin).PQnext.ystar)
+    Point(PQhash(PQmin).vertex.x, PQhash(PQmin).ystar)
   }
 
   def extractmin: Halfedge = {
     var curr: Halfedge = null
-    curr = PQhash(PQmin).PQnext
-    PQhash(PQmin).PQnext = curr.PQnext
+    curr = PQhash(PQmin)
+    PQhash(PQmin) = curr.PQnext
     PQcount -= 1
+    curr.PQnext = null
     curr
   }
 }
@@ -205,8 +214,8 @@ class ELt(sqrt_nsites: Int, boundingBox: Box) {
   var ELleftend: Halfedge = null
   var ELrightend: Halfedge = null
 
-  ELleftend = Halfedge.create(null, LE)
-  ELrightend = Halfedge.create(null, LE)
+  ELleftend = new Halfedge(null, LE)
+  ELrightend = new Halfedge(null, LE)
   ELleftend.ELleft = null
   ELleftend.ELright = ELrightend
   ELrightend.ELleft = ELleftend
@@ -569,13 +578,13 @@ class Voronoi(minDistanceBetweenSites: Double) {
         val rbnd = lbnd.ELright
         val bot: Site = rightreg(lbnd, bottomsite)
         val e = bisect(bot, newsite)
-        val bisector = Halfedge.create(e, LE)
+        val bisector = new Halfedge(e, LE)
         lbnd.insert(bisector)
         intersect(lbnd, bisector).foreach { p =>
           pqHash.delete(lbnd)
           pqHash.insert(lbnd, p, p.dist(newsite.coord))
         }
-        val bisector2 = Halfedge.create(e, RE)
+        val bisector2 = new Halfedge(e, RE)
         bisector.insert(bisector2)
         intersect(bisector2, rbnd).foreach { p =>
           pqHash.insert(bisector2, p, p.dist(newsite.coord))
@@ -606,7 +615,7 @@ class Voronoi(minDistanceBetweenSites: Double) {
           LE
         }
         val e = bisect(bot, top)
-        val bisector = Halfedge.create(e, pm)
+        val bisector = new Halfedge(e, pm)
         llbnd.insert(bisector)
         endpoint(e, pm.inverse, v, maxBox)
         intersect(llbnd, bisector).foreach { p =>
