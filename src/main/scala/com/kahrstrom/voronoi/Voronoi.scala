@@ -43,7 +43,7 @@ import scala.util.Random
  * OF THIS SOFTWARE OR ITS FITNESS FOR ANY PARTICULAR PURPOSE.
  */
 
-class Edge(val a: Double, val b: Double, val c: Double, val regL: Site, val regR: Site) {
+class Edge(val a: Double, val b: Double, val c: Double, val siteL: Site, val siteR: Site) {
   var endPoints: Array[Site] = new Array[Site](2)
 
   def discriminant(that: Edge): Double = {
@@ -284,7 +284,7 @@ class ELt(sqrt_nsites: Int, boundingBox: Box) {
         if ((!right_of_site & (e.b < 0.0)) | (right_of_site & (e.b >= 0.0))) {
           val aa = dyp >= e.b * dxp
           if (!aa) {
-            val dxs = topsite.coord.x - e.regL.coord.x
+            val dxs = topsite.coord.x - e.siteL.coord.x
             val a = e.b * (dxp * dxp - dyp * dyp) < dxs * dyp * (1.0 + 2.0 * dxp / dxs + e.b * e.b)
             if (e.b < 0.0) !a
             else a
@@ -293,7 +293,7 @@ class ELt(sqrt_nsites: Int, boundingBox: Box) {
           var a = e.above(p)
           if (e.b < 0.0) a = !a
           if (a) {
-            val dxs = topsite.coord.x - e.regL.coord.x
+            val dxs = topsite.coord.x - e.siteL.coord.x
             val a = e.b * (dxp * dxp - dyp * dyp) < dxs * dyp * (1.0 + 2.0 * dxp / dxs + e.b * e.b)
             if (e.b < 0.0) !a
             else a
@@ -309,7 +309,7 @@ class ELt(sqrt_nsites: Int, boundingBox: Box) {
     }
 
     val e: Edge = el.ELedge
-    val topsite: Site = e.regR
+    val topsite: Site = e.siteR
     val right_of_site: Boolean = p.x > topsite.coord.x
     if (right_of_site && el.ELpm == LE) true
     else if (!right_of_site && el.ELpm == RE) false
@@ -384,33 +384,25 @@ class Voronoi(minDistanceBetweenSites: Double) {
   }
 
   private def leftreg(he: Halfedge): Site = {
-    if (he.ELpm == LE) he.ELedge.regL
-    else he.ELedge.regR
+    if (he.ELpm == LE) he.ELedge.siteL
+    else he.ELedge.siteR
   }
 
   private def rightreg(he: Halfedge, bottomsite: Site): Site = {
     if (he.ELedge == null) bottomsite
-    else if (he.ELpm == LE) he.ELedge.regR
-    else he.ELedge.regL
-  }
-
-  def norm2(x1: Double, y1: Double, x2: Double, y2: Double): Double = {
-    (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)
-  }
-
-  def norm(x1: Double, y1: Double, x2: Double, y2: Double): Double = {
-    Math.sqrt(norm2(x1, y1, x2, y2))
+    else if (he.ELpm == LE) he.ELedge.siteR
+    else he.ELedge.siteL
   }
 
   private def clip_line(e: Edge, maxBox: Box): Option[GraphEdge] = {
+    if (e.siteL.coord.dist(e.siteR.coord) < minDistanceBetweenSites) return None
+
     val (s1, s2): (Site, Site) = if (e.a == 1.0 && e.b >= 0.0) (e.endPoints(1), e.endPoints(0)) else (e.endPoints(0), e.endPoints(1))
-    var x1: Double = e.regL.coord.x
-    var x2: Double = e.regR.coord.x
-    var y1: Double = e.regL.coord.y
-    var y2: Double = e.regR.coord.y
-    if (norm(x1, y1, x2, y2) < minDistanceBetweenSites) {
-      return None
-    }
+    var x1: Double = e.siteL.coord.x
+    var x2: Double = e.siteR.coord.x
+    var y1: Double = e.siteL.coord.y
+    var y2: Double = e.siteR.coord.y
+
     if (e.a == 1.0) {
       y1 = if (s1 != null && s1.coord.y > maxBox.minY && s1.coord.y <= maxBox.maxY) {
         s1.coord.y
@@ -483,7 +475,7 @@ class Voronoi(minDistanceBetweenSites: Double) {
         x2 = (e.c - y2) / e.a
       }
     }
-    Some(new GraphEdge(x1, y1, x2, y2, e.regL.siteIndex, e.regR.siteIndex))
+    Some(new GraphEdge(x1, y1, x2, y2, e.siteL.siteIndex, e.siteR.siteIndex))
   }
 
   private def endpoint(allEdges: java.util.LinkedList[GraphEdge], edge: Edge, side: Side, s: Site, boundingBox: Box): Unit = {
@@ -498,18 +490,18 @@ class Voronoi(minDistanceBetweenSites: Double) {
     val e2: Edge = el2.ELedge
 
     if (e1 == null || e2 == null) None
-    else if (e1.regR == e2.regR) None
+    else if (e1.siteR == e2.siteR) None
     else if (Math.abs(e1.discriminant(e2)) < 1.0e-10) None
     else {
       val d = e1.discriminant(e2)
       val xint = (e1.c * e2.b - e2.c * e1.b) / d
       val yint = (e2.c * e1.a - e1.c * e2.a) / d
-      val (e, el) = if ((e1.regR.coord.y < e2.regR.coord.y) || (e1.regR.coord.y == e2.regR.coord.y && e1.regR.coord.x < e2.regR.coord.x)) {
+      val (e, el) = if ((e1.siteR.coord.y < e2.siteR.coord.y) || (e1.siteR.coord.y == e2.siteR.coord.y && e1.siteR.coord.x < e2.siteR.coord.x)) {
         (e1, el1)
       } else {
         (e2, el2)
       }
-      val right_of_site = xint >= e.regR.coord.x
+      val right_of_site = xint >= e.siteR.coord.x
       if ((right_of_site && el.ELpm == LE) || (!right_of_site && el.ELpm == RE)) {
         None
       } else {
