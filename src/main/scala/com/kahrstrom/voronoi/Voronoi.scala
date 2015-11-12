@@ -486,12 +486,11 @@ class Voronoi(minDistanceBetweenSites: Double) {
     Some(new GraphEdge(x1, y1, x2, y2, e.regL.siteIndex, e.regR.siteIndex))
   }
 
-  private def endpoint(allEdges: java.util.LinkedList[GraphEdge], e: Edge, lr: Side, s: Site, boundingBox: Box): Unit = {
-    e.endPoints(lr.index) = s
-    if (e.endPoints(lr.inverse.index) == null) {
-      return
+  private def endpoint(allEdges: java.util.LinkedList[GraphEdge], edge: Edge, side: Side, s: Site, boundingBox: Box): Unit = {
+    edge.endPoints(side.index) = s
+    if (edge.endPoints(side.inverse.index) != null) {
+      clip_line(edge, boundingBox).foreach { graphEdge => allEdges.add(graphEdge) }
     }
-    clip_line(e, boundingBox).foreach { graphEdge => allEdges.add(graphEdge) }
   }
 
   private def intersect(el1: Halfedge, el2: Halfedge): Option[Point] = {
@@ -522,7 +521,6 @@ class Voronoi(minDistanceBetweenSites: Double) {
   private def voronoi_bd(allEdges: java.util.LinkedList[GraphEdge], sites: Seq[Site], sqrtNrSites: Int, nrSites: Int, maxBox: Box, boundingBox: Box): Boolean = {
     var nvertices: Int = 0
     var newsite: Site = null
-    var temp: Site = null
     var newintstar: Point = null
     val pqHash: PQHash = new PQHash(sqrtNrSites, boundingBox)
     val el: ELt = new ELt(sqrtNrSites, boundingBox)
@@ -558,13 +556,11 @@ class Voronoi(minDistanceBetweenSites: Double) {
         if (siteIterator.hasNext) newsite = siteIterator.next()
         else newsite = null
       } else if (!pqHash.isEmpty) {
-        val lbnd = pqHash.extractmin
-        val llbnd = lbnd.ELleft
-        val rbnd = lbnd.ELright
-        val rrbnd = rbnd.ELright
-        var bot: Site = leftreg(lbnd)
-        var top: Site = rightreg(rbnd, bottomsite)
-        val v = Site(lbnd.vertex, nvertices)
+        val lbnd: Halfedge = pqHash.extractmin
+        val llbnd: Halfedge = lbnd.ELleft
+        val rbnd: Halfedge = lbnd.ELright
+        val rrbnd: Halfedge = rbnd.ELright
+        val v: Site = Site(lbnd.vertex, nvertices)
         nvertices += 1
 
         endpoint(allEdges, lbnd.ELedge, lbnd.ELpm, v, maxBox)
@@ -572,13 +568,12 @@ class Voronoi(minDistanceBetweenSites: Double) {
         lbnd.delete()
         pqHash.delete(rbnd)
         rbnd.delete()
-        val pm = if (bot.coord.y > top.coord.y) {
-          temp = bot
-          bot = top
-          top = temp
-          RE
-        } else {
-          LE
+
+        val (bot: Site, top: Site, pm: Side) = {
+          val a: Site = leftreg(lbnd)
+          val b: Site = rightreg(rbnd, bottomsite)
+          if (a.coord.y > b.coord.y) (b, a, RE)
+          else (a, b, LE)
         }
         val e = bisect(bot, top)
         val bisector = Halfedge.create(e, pm)
