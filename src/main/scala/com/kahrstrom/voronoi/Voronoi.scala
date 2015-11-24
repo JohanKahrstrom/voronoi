@@ -52,6 +52,8 @@ class Edge(val a: Double, val b: Double, val c: Double, val siteL: Site, val sit
 
   def above(p: Point): Boolean = p.x * a + p.y * b > c
   def below(p: Point): Boolean = p.x * a + p.y * b < c
+
+  def hasSide(side: Side): Boolean = endPoints(side.index) != null
 }
 
 case class GraphEdge(val x1: Double, val y1: Double, val x2: Double, val y2: Double, val site1: Int, val site2: Int)
@@ -390,29 +392,27 @@ class Voronoi(minDistanceBetweenSites: Double) {
     if (e.siteL.coord.dist(e.siteR.coord) < minDistanceBetweenSites) return None
 
     val (s1, s2): (Site, Site) = if (e.a == 1.0 && e.b >= 0.0) (e.endPoints(1), e.endPoints(0)) else (e.endPoints(0), e.endPoints(1))
-    var x1: Double = e.siteL.coord.x
-    var x2: Double = e.siteR.coord.x
-    var y1: Double = e.siteL.coord.y
-    var y2: Double = e.siteR.coord.y
+    var x1: Double = 0
+    var x2: Double = 0
+    var y1: Double = 0
+    var y2: Double = 0
+
+    def clip(v: Double, min: Double, max: Double): Double = {
+      if (v < min) min
+      else if (v > max) max
+      else v
+    }
 
     if (e.a == 1.0) {
-      y1 = if (s1 != null && s1.coord.y > maxBox.minY && s1.coord.y <= maxBox.maxY) {
-        s1.coord.y
-      } else if (s1 != null && s1.coord.y > maxBox.maxY) {
-        maxBox.maxY
-      } else {
-        maxBox.minY
-      }
+      y1 = if (s1 == null) maxBox.minY
+      else clip(s1.coord.y, maxBox.minY, maxBox.maxY)
       x1 = e.c - e.b * y1
-      y2 = if (s2 != null && s2.coord.y >= maxBox.minY && s2.coord.y < maxBox.maxY) {
-        s2.coord.y
-      } else if (s2 != null && s2.coord.y < maxBox.minY) {
-        maxBox.minY
-      } else {
-        maxBox.maxY
-      }
+
+      y2 = if (s2 == null) maxBox.maxY
+      else clip(s2.coord.y, maxBox.minY, maxBox.maxY)
       x2 = e.c - e.b * y2
-      if (((x1 > maxBox.maxX) & (x2 > maxBox.maxX)) | ((x1 < maxBox.minX) & (x2 < maxBox.minX))) {
+
+      if (((x1 > maxBox.maxX) & (x2 > maxBox.maxX)) || ((x1 < maxBox.minX) & (x2 < maxBox.minX))) {
         return None
       }
       if (x1 > maxBox.maxX) {
@@ -433,23 +433,15 @@ class Voronoi(minDistanceBetweenSites: Double) {
       }
     }
     else {
-      x1 = if (s1 != null && s1.coord.x > maxBox.minX && s1.coord.x <= maxBox.maxX) {
-        s1.coord.x
-      } else if (s1 != null && s1.coord.x > maxBox.maxX) {
-        maxBox.maxX
-      } else {
-        maxBox.minX
-      }
+      x1 = if (s1 == null) maxBox.minX
+      else clip(s1.coord.x, maxBox.minX, maxBox.maxX)
       y1 = e.c - e.a * x1
-      x2 = if (s2 != null && s2.coord.x >= maxBox.minX && s2.coord.x < maxBox.maxX) {
-        s2.coord.x
-      } else if (s2 != null && s2.coord.x < maxBox.minX) {
-        maxBox.minX
-      } else {
-        maxBox.maxX
-      }
+
+      x2 = if (s2 == null) maxBox.maxX
+      else clip(s2.coord.x, maxBox.minX, maxBox.maxX)
       y2 = e.c - e.a * x2
-      if (((y1 > maxBox.maxY) & (y2 > maxBox.maxY)) | ((y1 < maxBox.minY) & (y2 < maxBox.minY))) {
+
+      if (((y1 > maxBox.maxY) & (y2 > maxBox.maxY)) || ((y1 < maxBox.minY) & (y2 < maxBox.minY))) {
         return None
       }
       if (y1 > maxBox.maxY) {
@@ -470,11 +462,15 @@ class Voronoi(minDistanceBetweenSites: Double) {
     Some(new GraphEdge(x1, y1, x2, y2, e.siteL.siteIndex, e.siteR.siteIndex))
   }
 
-  private def endpoint(allEdges: java.util.LinkedList[GraphEdge], edge: Edge, side: Side, s: Site, boundingBox: Box): Unit = {
-    edge.endPoints(side.index) = s
-    if (edge.endPoints(side.inverse.index) != null) {
+  private def clipIfDone(allEdges: java.util.LinkedList[GraphEdge], edge: Edge, side: Side, boundingBox: Box): Unit = {
+    if (edge.hasSide(side.inverse)) {
+      // We have both end points, clip the line if necessary and add to list of graph edges.
       clip_line(edge, boundingBox).foreach { graphEdge => allEdges.add(graphEdge) }
     }
+  }
+
+  private def endpoint(edge: Edge, side: Side, site: Site): Unit = {
+    edge.endPoints(side.index) = site
   }
 
   private def intersect(el1: Halfedge, el2: Halfedge): Option[Point] = {
@@ -517,11 +513,11 @@ class Voronoi(minDistanceBetweenSites: Double) {
         newintstar = pqHash.min
       }
 
-      def isAfter(he: Halfedge, he2: Halfedge): Boolean = {
-        he.ystar > he2.ystar || (he.ystar == he2.ystar && he.vertex.x > he2.vertex.x)
+      def isBefore(p1: Point, p2: Point): Boolean = {
+        p1.y < p2.y || (p1.y == p2.y && p1.x < p2.x)
       }
 
-      if (newsite != null && (pqHash.isEmpty || newsite.coord.y < newintstar.y || (newsite.coord.y == newintstar.y && newsite.coord.x < newintstar.x))) {
+      if (newsite != null && (pqHash.isEmpty || isBefore(newsite.coord, newintstar))) {
         val lbnd = el.leftbnd(newsite.coord)
         val rbnd = lbnd.ELright
         val bot: Site = rightreg(lbnd, bottomsite)
@@ -547,8 +543,10 @@ class Voronoi(minDistanceBetweenSites: Double) {
         val v: Site = Site(lbnd.vertex, nvertices)
         nvertices += 1
 
-        endpoint(allEdges, lbnd.ELedge, lbnd.ELpm, v, maxBox)
-        endpoint(allEdges, rbnd.ELedge, rbnd.ELpm, v, maxBox)
+        endpoint(lbnd.ELedge, lbnd.ELpm, v)
+        clipIfDone(allEdges, lbnd.ELedge, lbnd.ELpm, maxBox)
+        endpoint(rbnd.ELedge, rbnd.ELpm, v)
+        clipIfDone(allEdges, rbnd.ELedge, rbnd.ELpm, maxBox)
         lbnd.delete()
         pqHash.delete(rbnd)
         rbnd.delete()
@@ -562,7 +560,8 @@ class Voronoi(minDistanceBetweenSites: Double) {
         val e = bisect(bot, top)
         val bisector = new Halfedge(e, pm)
         llbnd.insert(bisector)
-        endpoint(allEdges, e, pm.inverse, v, maxBox)
+        endpoint(e, pm.inverse, v)
+        clipIfDone(allEdges, e, pm.inverse, maxBox)
         intersect(llbnd, bisector).foreach { p =>
           pqHash.delete(llbnd)
           pqHash.insert(llbnd, p, p.dist(bot.coord))
@@ -576,9 +575,7 @@ class Voronoi(minDistanceBetweenSites: Double) {
     }
     var lbnd = el.ELleftend.ELright
     while (lbnd != el.ELrightend) {
-      {
-        clip_line(lbnd.ELedge, maxBox).foreach(graphEdge => allEdges.add(graphEdge))
-      }
+      clip_line(lbnd.ELedge, maxBox).foreach(graphEdge => allEdges.add(graphEdge))
       lbnd = lbnd.ELright
     }
     true
