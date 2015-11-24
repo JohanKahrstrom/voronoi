@@ -1,7 +1,6 @@
 package com.kahrstrom.voronoi
 
-import scala.annotation.tailrec
-import scala.util.Random
+import scala.collection.mutable
 
 /*
  * The author of this software is Steven Fortune.  Copyright (c) 1994 by AT&T
@@ -53,7 +52,7 @@ class Edge(val a: Double, val b: Double, val c: Double, val siteL: Site, val sit
   def above(p: Point): Boolean = p.x * a + p.y * b > c
   def below(p: Point): Boolean = p.x * a + p.y * b < c
 
-  def hasSide(side: Side): Boolean = endPoints(side.index) != null
+  def hasBothEndpoints: Boolean = endPoints(0) != null && endPoints(1) != null
 }
 
 case class GraphEdge(val x1: Double, val y1: Double, val x2: Double, val y2: Double, val site1: Int, val site2: Int)
@@ -81,6 +80,20 @@ class Halfedge(val ELedge: Edge, val ELpm: Side) {
     ELleft.ELright = ELright
     ELright.ELleft = ELleft
     deleted = true
+  }
+
+  def setEndpoint(site: Site, side: Side = ELpm): Unit = {
+    ELedge.endPoints(side.index) = site
+  }
+
+  def leftSite: Site = {
+    if (ELpm == LE) ELedge.siteL
+    else ELedge.siteR
+  }
+
+  def rightSite: Site = {
+    if (ELpm == LE) ELedge.siteR
+    else ELedge.siteL
   }
 }
 
@@ -213,11 +226,8 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
 class ELt(sqrt_nsites: Int, boundingBox: Box) {
   private val ELhashsize: Int = 2 * sqrt_nsites
   private val ELhash: Array[Halfedge] = new Array[Halfedge](ELhashsize)
-  var ELleftend: Halfedge = null
-  var ELrightend: Halfedge = null
-
-  ELleftend = new Halfedge(null, LE)
-  ELrightend = new Halfedge(null, LE)
+  val ELleftend: Halfedge = new Halfedge(null, LE)
+  val ELrightend: Halfedge = new Halfedge(null, LE)
   ELleftend.ELleft = null
   ELleftend.ELright = ELrightend
   ELrightend.ELleft = ELleftend
@@ -234,7 +244,7 @@ class ELt(sqrt_nsites: Int, boundingBox: Box) {
     }
   }
 
-  def getBucket(p: Point): Int = {
+  private def getBucket(p: Point): Int = {
     val bucket = ((p.x - boundingBox.minY) / (boundingBox.maxX - boundingBox.minX) * ELhashsize).toInt
     if (bucket < 0) 0
     else if (bucket >= ELhashsize) ELhashsize - 1
@@ -327,11 +337,11 @@ class Voronoi(minDistanceBetweenSites: Double) {
    * @param maxY The maximum Y of the bounding box around the voronoi
    * @return
    */
-  def generateVoronoi(xValuesIn: Array[Double], yValuesIn: Array[Double], minX: Double, maxX: Double, minY: Double, maxY: Double): java.util.List[GraphEdge] = {
+  def generateVoronoi(xValuesIn: Array[Double], yValuesIn: Array[Double], minX: Double, maxX: Double, minY: Double, maxY: Double): mutable.ListBuffer[GraphEdge] = {
     val count = xValuesIn.length
     val sn: Double = count.toDouble + 4
     val sqrt_nsites = Math.sqrt(sn).toInt
-    val allEdges = new java.util.LinkedList[GraphEdge]
+    val allEdges = new mutable.ListBuffer[GraphEdge]
     val sites: Seq[Site] = sortedSites(xValuesIn, yValuesIn)
 
     val maxBox = Box(min(minX, maxX), max(minX, maxX), min(minY, maxY), max(minY, maxY))
@@ -365,7 +375,9 @@ class Voronoi(minDistanceBetweenSites: Double) {
     }
   }
 
-  private def bisect(s1: Site, s2: Site): Edge = {
+  // Creates the edge that separates s1 and s2.
+  // Normlised so that either a = 1 or b = 1.
+  private def separate(s1: Site, s2: Site): Edge = {
     val d = s2.coord - s1.coord
     val adx: Double = Math.abs(d.x)
     val ady: Double = Math.abs(d.y)
@@ -375,17 +387,6 @@ class Voronoi(minDistanceBetweenSites: Double) {
     val tc = s1.coord * d + d.norm2 * 0.5
     val (a, b, c) = if (adx > ady) (ta / d.x, tb / d.x, tc / d.x) else (ta / d.y, tb / d.y, tc / d.y)
     new Edge(a, b, c, s1, s2)
-  }
-
-  private def leftreg(he: Halfedge): Site = {
-    if (he.ELpm == LE) he.ELedge.siteL
-    else he.ELedge.siteR
-  }
-
-  private def rightreg(he: Halfedge, bottomsite: Site): Site = {
-    if (he.ELedge == null) bottomsite
-    else if (he.ELpm == LE) he.ELedge.siteR
-    else he.ELedge.siteL
   }
 
   private def clip_line(e: Edge, maxBox: Box): Option[GraphEdge] = {
@@ -462,15 +463,10 @@ class Voronoi(minDistanceBetweenSites: Double) {
     Some(new GraphEdge(x1, y1, x2, y2, e.siteL.siteIndex, e.siteR.siteIndex))
   }
 
-  private def clipIfDone(allEdges: java.util.LinkedList[GraphEdge], edge: Edge, side: Side, boundingBox: Box): Unit = {
-    if (edge.hasSide(side.inverse)) {
-      // We have both end points, clip the line if necessary and add to list of graph edges.
-      clip_line(edge, boundingBox).foreach { graphEdge => allEdges.add(graphEdge) }
+  private def clipIfDone(allEdges: mutable.ListBuffer[GraphEdge], edge: Edge, boundingBox: Box): Unit = {
+    if (edge.hasBothEndpoints) {
+      allEdges ++= clip_line(edge, boundingBox)
     }
-  }
-
-  private def endpoint(edge: Edge, side: Side, site: Site): Unit = {
-    edge.endPoints(side.index) = site
   }
 
   private def intersect(el1: Halfedge, el2: Halfedge): Option[Point] = {
@@ -498,7 +494,7 @@ class Voronoi(minDistanceBetweenSites: Double) {
     }
   }
 
-  private def voronoi_bd(allEdges: java.util.LinkedList[GraphEdge], sites: Seq[Site], sqrtNrSites: Int, nrSites: Int, maxBox: Box, boundingBox: Box): Boolean = {
+  private def voronoi_bd(allEdges: mutable.ListBuffer[GraphEdge], sites: Seq[Site], sqrtNrSites: Int, nrSites: Int, maxBox: Box, boundingBox: Box): Boolean = {
     var nvertices: Int = 0
     var newsite: Site = null
     var newintstar: Point = null
@@ -518,14 +514,15 @@ class Voronoi(minDistanceBetweenSites: Double) {
       }
 
       if (newsite != null && (pqHash.isEmpty || isBefore(newsite.coord, newintstar))) {
-        val lbnd = el.leftbnd(newsite.coord)
-        val rbnd = lbnd.ELright
-        val bot: Site = rightreg(lbnd, bottomsite)
-        val e = bisect(bot, newsite)
+        // p is a site in *(V):
+        val lbnd: Halfedge = el.leftbnd(newsite.coord)
+        val rbnd: Halfedge = lbnd.ELright
+        val site: Site = if (lbnd.ELedge == null) bottomsite else lbnd.rightSite
+        val e = separate(site, newsite)
         val bisector = new Halfedge(e, LE)
         lbnd.insert(bisector)
+        pqHash.delete(lbnd)
         intersect(lbnd, bisector).foreach { p =>
-          pqHash.delete(lbnd)
           pqHash.insert(lbnd, p, p.dist(newsite.coord))
         }
         val bisector2 = new Halfedge(e, RE)
@@ -543,27 +540,27 @@ class Voronoi(minDistanceBetweenSites: Double) {
         val v: Site = Site(lbnd.vertex, nvertices)
         nvertices += 1
 
-        endpoint(lbnd.ELedge, lbnd.ELpm, v)
-        clipIfDone(allEdges, lbnd.ELedge, lbnd.ELpm, maxBox)
-        endpoint(rbnd.ELedge, rbnd.ELpm, v)
-        clipIfDone(allEdges, rbnd.ELedge, rbnd.ELpm, maxBox)
+        lbnd.setEndpoint(v)
+        clipIfDone(allEdges, lbnd.ELedge, maxBox)
+        rbnd.setEndpoint(v)
+        clipIfDone(allEdges, rbnd.ELedge, maxBox)
         lbnd.delete()
         pqHash.delete(rbnd)
         rbnd.delete()
 
         val (bot: Site, top: Site, pm: Side) = {
-          val a: Site = leftreg(lbnd)
-          val b: Site = rightreg(rbnd, bottomsite)
+          val a: Site = lbnd.leftSite
+          val b: Site = rbnd.rightSite
           if (a.coord.y > b.coord.y) (b, a, RE)
           else (a, b, LE)
         }
-        val e = bisect(bot, top)
+        val e = separate(bot, top)
         val bisector = new Halfedge(e, pm)
         llbnd.insert(bisector)
-        endpoint(e, pm.inverse, v)
-        clipIfDone(allEdges, e, pm.inverse, maxBox)
+        bisector.setEndpoint(v, pm.inverse)
+        clipIfDone(allEdges, e, maxBox)
+        pqHash.delete(llbnd)
         intersect(llbnd, bisector).foreach { p =>
-          pqHash.delete(llbnd)
           pqHash.insert(llbnd, p, p.dist(bot.coord))
         }
         intersect(bisector, rrbnd).foreach { p =>
@@ -573,9 +570,10 @@ class Voronoi(minDistanceBetweenSites: Double) {
         keepLooping = false
       }
     }
+    // Add all remaining edges in the beach line
     var lbnd = el.ELleftend.ELright
     while (lbnd != el.ELrightend) {
-      clip_line(lbnd.ELedge, maxBox).foreach(graphEdge => allEdges.add(graphEdge))
+      allEdges ++= clip_line(lbnd.ELedge, maxBox)
       lbnd = lbnd.ELright
     }
     true
