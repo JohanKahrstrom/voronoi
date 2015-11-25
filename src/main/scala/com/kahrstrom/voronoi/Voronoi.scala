@@ -252,18 +252,22 @@ class ELt(sqrt_nsites: Int, boundingBox: Box) {
   }
 
   def leftbnd(p: Point): Halfedge = {
-    var i: Int = 0
-    val bucket: Int = getBucket(p)
-    var he: Halfedge = null
-    he = get(bucket)
-    if (he == null) {
-      i = 1
-      while (i < ELhashsize && he == null) {
-        if (get(bucket - i) != null) he = get(bucket - i)
-        else if (get(bucket + i) != null) he = get(bucket + i)
-        i += 1
+    def getHalfedge(bucket: Int): Halfedge = {
+      var he = get(bucket)
+      var i: Int = 0
+      if (he == null) {
+        i = 1
+        while (i < ELhashsize && he == null) {
+          if (get(bucket - i) != null) he = get(bucket - i)
+          else if (get(bucket + i) != null) he = get(bucket + i)
+          i += 1
+        }
       }
+      he
     }
+
+    val bucket: Int = getBucket(p)
+    var he: Halfedge = getHalfedge(bucket)
     if (he == ELleftend || (he != ELrightend && right_of(he, p))) {
       do {
         he = he.ELright
@@ -500,10 +504,10 @@ class Voronoi(minDistanceBetweenSites: Double) {
     var newintstar: Point = null
     val pqHash: PQHash = new PQHash(sqrtNrSites, boundingBox)
     val el: ELt = new ELt(sqrtNrSites, boundingBox)
-    val siteIterator = sites.iterator
-    val bottomsite = siteIterator.next()
+    val siteIterator: Iterator[Site] = sites.iterator
+    val bottomsite: Site = siteIterator.next()
     newsite = siteIterator.next()
-    var keepLooping = true
+    var keepLooping: Boolean = true
     while (keepLooping) {
       if (!pqHash.isEmpty) {
         newintstar = pqHash.min
@@ -518,8 +522,8 @@ class Voronoi(minDistanceBetweenSites: Double) {
         val lbnd: Halfedge = el.leftbnd(newsite.coord)
         val rbnd: Halfedge = lbnd.ELright
         val site: Site = if (lbnd.ELedge == null) bottomsite else lbnd.rightSite
-        val e = separate(site, newsite)
-        val bisector = new Halfedge(e, LE)
+        val e: Edge = separate(site, newsite)
+        val bisector: Halfedge = new Halfedge(e, LE)
         lbnd.insert(bisector)
         pqHash.delete(lbnd)
         intersect(lbnd, bisector).foreach { p =>
@@ -554,8 +558,8 @@ class Voronoi(minDistanceBetweenSites: Double) {
           if (a.coord.y > b.coord.y) (b, a, RE)
           else (a, b, LE)
         }
-        val e = separate(bot, top)
-        val bisector = new Halfedge(e, pm)
+        val e: Edge = separate(bot, top)
+        val bisector: Halfedge = new Halfedge(e, pm)
         llbnd.insert(bisector)
         bisector.setEndpoint(v, pm.inverse)
         clipIfDone(allEdges, e, maxBox)
