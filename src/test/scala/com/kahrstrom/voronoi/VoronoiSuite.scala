@@ -21,7 +21,7 @@ class VoronoiSuite extends FlatSpec with Matchers {
     }
   }
 
-  def round(d: Double): Double = BigDecimal(d).setScale(6, BigDecimal.RoundingMode.HALF_UP).toDouble
+  def round(d: Double): Double = BigDecimal(d).setScale(11, BigDecimal.RoundingMode.HALF_UP).toDouble
   def round(p: P): P = P(round(p.x), round(p.y))
   def round(e: E): E = E(round(e.p1), round(e.p2), e.site1, e.site2)
   def round(s: Set[E]): Set[E] = s.map(round)
