@@ -54,6 +54,8 @@ class Edge(val a: Double, val b: Double, val c: Double, val siteL: Site, val sit
   def below(p: Point): Boolean = p.x * a + p.y * b < c
 
   def hasSide(side: Side): Boolean = endPoints(side.index) != null
+
+  override def toString(): String = s"Edge($a, $b, $c, $siteL, $siteR)"
 }
 
 case class GraphEdge(val x1: Double, val y1: Double, val x2: Double, val y2: Double, val site1: Int, val site2: Int)
@@ -79,6 +81,8 @@ class Halfedge(val ELpm: Side) {
     ELright.ELleft = ELleft
     deleted = true
   }
+
+  override def toString(): String = s"Halfedge($ELpm, $ELedge)"
 }
 
 object Halfedge {
@@ -118,11 +122,13 @@ sealed trait Side {
 object LE extends Side {
   val index: Int = 0
   val inverse: Side = RE
+  override def toString(): String = "RE"
 }
 
 object RE extends Side {
   val index: Int = 1
   val inverse: Side = LE
+  override def toString(): String = "LE"
 }
 
 case class Box(minX: Double, maxX: Double, minY: Double, maxY: Double)
@@ -397,13 +403,14 @@ class Voronoi(minDistanceBetweenSites: Double) {
   }
 
   private def clip_line(e: Edge, maxBox: Box): Option[GraphEdge] = {
+    println(s"Edge: $e")
     if (e.siteL.coord.dist(e.siteR.coord) < minDistanceBetweenSites) return None
 
     val (s1, s2): (Site, Site) = if (e.a == 1.0 && e.b >= 0.0) (e.endPoints(1), e.endPoints(0)) else (e.endPoints(0), e.endPoints(1))
-    var x1: Double = 0
-    var x2: Double = 0
-    var y1: Double = 0
-    var y2: Double = 0
+    var x1: Double = if (s1 == null) -1000 else s1.coord.x
+    var x2: Double = if (s2 == null) -1000 else s2.coord.x
+    var y1: Double = if (s1 == null) -1000 else s1.coord.y
+    var y2: Double = if (s2 == null) -1000 else s2.coord.y
 
     def clip(v: Double, min: Double, max: Double): Double = {
       if (v < min) min
@@ -411,14 +418,22 @@ class Voronoi(minDistanceBetweenSites: Double) {
       else v
     }
 
-    if (e.a == 1.0) {
-      y1 = if (s1 == null) maxBox.minY
-      else clip(s1.coord.y, maxBox.minY, maxBox.maxY)
-      x1 = e.c - e.b * y1
+    def needsClipping(v: Double, min: Double, max: Double): Boolean = {
+      (v < min) || (v > max)
+    }
 
-      y2 = if (s2 == null) maxBox.maxY
-      else clip(s2.coord.y, maxBox.minY, maxBox.maxY)
-      x2 = e.c - e.b * y2
+    if (e.a == 1.0) {
+      if (s1 == null || needsClipping(y1, maxBox.minY, maxBox.maxY)) {
+        y1 = if (s1 == null) maxBox.minY
+        else clip(s1.coord.y, maxBox.minY, maxBox.maxY)
+        x1 = e.c - e.b * y1
+      }
+
+      if (s2 == null || needsClipping(y2, maxBox.minY, maxBox.maxY)) {
+        y2 = if (s2 == null) maxBox.maxY
+        else clip(s2.coord.y, maxBox.minY, maxBox.maxY)
+        x2 = e.c - e.b * y2
+      }
 
       if (((x1 > maxBox.maxX) & (x2 > maxBox.maxX)) || ((x1 < maxBox.minX) & (x2 < maxBox.minX))) {
         return None
@@ -441,13 +456,17 @@ class Voronoi(minDistanceBetweenSites: Double) {
       }
     }
     else {
-      x1 = if (s1 == null) maxBox.minX
-      else clip(s1.coord.x, maxBox.minX, maxBox.maxX)
-      y1 = e.c - e.a * x1
+      if (s1 == null || needsClipping(x1, maxBox.minX, maxBox.maxX)) {
+        x1 = if (s1 == null) maxBox.minX
+        else clip(s1.coord.x, maxBox.minX, maxBox.maxX)
+        y1 = e.c - e.a * x1
+      }
 
-      x2 = if (s2 == null) maxBox.maxX
-      else clip(s2.coord.x, maxBox.minX, maxBox.maxX)
-      y2 = e.c - e.a * x2
+      if (s2 == null || needsClipping(x2, maxBox.minX, maxBox.maxX)) {
+        x2 = if (s2 == null) maxBox.maxX
+        else clip(s2.coord.x, maxBox.minX, maxBox.maxX)
+        y2 = e.c - e.a * x2
+      }
 
       if (((y1 > maxBox.maxY) & (y2 > maxBox.maxY)) || ((y1 < maxBox.minY) & (y2 < maxBox.minY))) {
         return None
@@ -467,6 +486,7 @@ class Voronoi(minDistanceBetweenSites: Double) {
         x2 = (e.c - y2) / e.a
       }
     }
+
     Some(new GraphEdge(x1, y1, x2, y2, e.siteL.siteIndex, e.siteR.siteIndex))
   }
 
@@ -549,6 +569,7 @@ class Voronoi(minDistanceBetweenSites: Double) {
         val rbnd: Halfedge = lbnd.ELright
         val rrbnd: Halfedge = rbnd.ELright
         val v: Site = Site(lbnd.vertex, nvertices)
+        println(s"Site: $v ($lbnd)")
         nvertices += 1
 
         endpoint(lbnd.ELedge, lbnd.ELpm, v)

@@ -21,6 +21,11 @@ class VoronoiSuite extends FlatSpec with Matchers {
     }
   }
 
+  def round(d: Double): Double = BigDecimal(d).setScale(6, BigDecimal.RoundingMode.HALF_UP).toDouble
+  def round(p: P): P = P(round(p.x), round(p.y))
+  def round(e: E): E = E(round(e.p1), round(e.p2), e.site1, e.site2)
+  def round(s: Set[E]): Set[E] = s.map(round)
+
   "Voronoi" should "handle two vertical points" in {
     val voronoi = new Voronoi(0.00001)
     val graphEdges1: Seq[GraphEdge] = voronoi.generateVoronoi(Array(0.0, 0.0), Array(-1.0, 1.0), -2.0, 2.0, -2.0, 2.0).toSeq
@@ -45,6 +50,7 @@ class VoronoiSuite extends FlatSpec with Matchers {
 
     // Note that E(P(0.0, 0.0), P(0.0, -0.0), 2, 0) should not be an edge, this is a bug
     convertToSimpleEdges(graphEdges) should be (Set(E(P(-2.0,0.0),P(-0.0,0.0),2,1), E(P(0.0,0.0),P(0.0,-0.0),2,0), E(P(0.0,-2.0),P(0.0,0.0),2,3), E(P(0.0,0.0),P(2.0,0.0),3,0), E(P(0.0,-0.0),P(0.0,2.0),1,0)) )
+    println(graphEdges)
   }
 
   it should "generate simple voronoi list" in {
@@ -61,7 +67,7 @@ class VoronoiSuite extends FlatSpec with Matchers {
     val result: Seq[GraphEdge] = voronoi.generateVoronoi(xs, ys, -2.0, 2.0, -2.0, 2.0).toSeq
     val expected: Set[E] = Set(E(P(-0.7993421076417856, -0.307481232688594), P(0.1448205341269588, -0.1243869565147698), 3, 1), E(P(0.1448205341269588, -0.1243869565147698), P(2.0, -1.0739149736467604), 3, 0), E(P(-1.2791596948386679, -0.0716052029907136), P(-0.7993421076417856, -0.307481232688594), 6, 1), E(P(-1.279159694838668, -0.07160520299071359), P(-1.2457365413067285, 0.0018864190969437112), 1, 5), E(P(-1.2457365413067285, 0.0018864190969437112), P(-0.560011883601033, 0.9128277312096309), 1, 8), E(P(2.0, -0.5811256024300643), P(0.887155306164495, 0.9402286754167345), 0, 4), E(P(0.14482053412695906, -0.1243869565147698), P(0.7652149828385783, 0.9906588769279112), 0, 1), E(P(0.7652149828385783, 0.9906588769279112), P(0.8871553061644951, 0.9402286754167344), 0, 9), E(P(-1.2457365413067285, 0.0018864190969437112), P(-1.5246269519409832, 1.5577301541604363), 5, 8), E(P(-1.5246269519409832, 1.5577301541604365), P(-1.1546788724314556, 1.8193880263573188), 8, 7), E(P(-0.5600118836010333, 0.9128277312096309), P(-1.1546788724314556, 1.8193880263573188), 8, 2), E(P(-0.5600118836010332, 0.9128277312096308), P(0.30051158177844317, 1.4602882770209829), 1, 2), E(P(0.7652149828385785, 0.9906588769279112), P(0.30051158177844317, 1.4602882770209826), 1, 9), E(P(-1.1546788724314554, 1.8193880263573188), P(-1.0993954963077717, 2.0), 2, 7), E(P(0.30051158177844306, 1.4602882770209826), P(0.29520123550623595, 2.0), 2, 9), E(P(-2.0, -0.3139279103921874), P(-1.2791596948386679, -0.0716052029907136), 6, 5), E(P(-2.0, 1.6914319739209502), P(-1.5246269519409832, 1.5577301541604363), 5, 7), E(P(-0.11417779298397346, 2.0), P(-0.11417779298397346, 2.0), 9, 7), E(P(0.8871553061644951, 0.9402286754167345), P(2.0, 1.5399245084160096), 4, 9), E(P(2.0, -0.8233453375525477), P(2.0, -0.8233453375525477), 3, 4), E(P(0.33521129859668264, -2.0), P(-0.7993421076417856, -0.307481232688594), 6, 3))
 
-    convertToSimpleEdges(result) should be (expected)
+    round(convertToSimpleEdges(result)) should be (round(expected))
   }
 
   val min = -2.0
@@ -106,7 +112,7 @@ class VoronoiSuite extends FlatSpec with Matchers {
       val jret: Seq[javavoronoi.GraphEdge] = jvoronoi.generateVoronoi(jxs, jys, -2.0, 2.0, -2.0, 2.0).toSeq
       val ret = voronoi.generateVoronoi(xs, ys, -2.0, 2.0, -2.0, 2.0).toSeq
 
-      convertToSimpleEdges(jret.map(convertToScala)) should be (convertToSimpleEdges(ret))
+      round(convertToSimpleEdges(jret.map(convertToScala))) should be (round(convertToSimpleEdges(ret)))
     }
   }
 
@@ -123,7 +129,7 @@ class VoronoiSuite extends FlatSpec with Matchers {
       val jret: Seq[javavoronoi.GraphEdge] = jvoronoi.generateVoronoi(jxs, jys, -2.0, 2.0, -2.0, 2.0).toSeq
       val ret = voronoi.generateVoronoi(xs, ys, -2.0, 2.0, -2.0, 2.0).toSeq
 
-      convertToSimpleEdges(jret.map(convertToScala)) should be(convertToSimpleEdges(ret))
+      round(convertToSimpleEdges(jret.map(convertToScala))) should be (round(convertToSimpleEdges(ret)))
     }
   }
 
@@ -139,6 +145,6 @@ class VoronoiSuite extends FlatSpec with Matchers {
     val jret: Seq[javavoronoi.GraphEdge] = jvoronoi.generateVoronoi(jxs, jys, -2.0, 2.0, -2.0, 2.0).toSeq
     val ret = voronoi.generateVoronoi(xs, ys, -2.0, 2.0, -2.0, 2.0).toSeq
 
-    convertToSimpleEdges(jret.map(convertToScala)) should be (convertToSimpleEdges(ret))
+    round(convertToSimpleEdges(jret.map(convertToScala))) should be (round(convertToSimpleEdges(ret)))
   }
 }
