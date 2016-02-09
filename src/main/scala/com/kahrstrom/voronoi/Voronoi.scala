@@ -49,6 +49,17 @@ class Edge(val a: Double, val b: Double, val c: Double, val siteL: Site, val sit
     this.a * that.b - this.b * that.a
   }
 
+  def intersection(that: Edge): Option[Point] = {
+    val d = this.discriminant(that)
+    if (Math.abs(d) < 1.0e-10) None
+    else {
+      val xint = (this.c * that.b - that.c * this.b) / d
+      val yint = (that.c * this.a - this.c * that.a) / d
+
+      Some(Point(xint, yint))
+    }
+  }
+
   def above(p: Point): Boolean = p.x * a + p.y * b > c
   def below(p: Point): Boolean = p.x * a + p.y * b < c
 
@@ -63,7 +74,7 @@ class PQLink(val ELpm: Side) {
 
 }
 
-class Halfedge(val ELedge: Edge, val ELpm: Side) {
+class Halfedge(val name: String, val ELedge: Edge, val ELpm: Side) {
   var ELleft: Halfedge = null
   var ELright: Halfedge = null
   var deleted: Boolean = false
@@ -84,7 +95,7 @@ class Halfedge(val ELedge: Edge, val ELpm: Side) {
     deleted = true
   }
 
-  override def toString(): String = s"Halfedge($ELpm, $ELedge)"
+  override def toString(): String = s"Halfedge($name, $ELpm, $ELedge)"
 
   def setEndpoint(site: Site, side: Side = ELpm): Unit = {
     ELedge.endPoints(side.index) = site
@@ -98,6 +109,23 @@ class Halfedge(val ELedge: Edge, val ELpm: Side) {
   def rightSite: Site = {
     if (ELpm == LE) ELedge.siteR
     else ELedge.siteL
+  }
+
+  def intersect(that: Halfedge): Option[Point] = {
+    def rightOfSite(xint: Double, el: Halfedge): Boolean = {
+      val right_of_site = xint >= el.ELedge.siteR.coord.x
+      (right_of_site && el.ELpm == LE) || (!right_of_site && el.ELpm == RE)
+    }
+
+    if (this.ELedge == null || that.ELedge == null) None
+    else if (this.ELedge.siteR == that.ELedge.siteR) None
+    else {
+      for {
+        p <- this.ELedge.intersection(that.ELedge)
+        el = if (this.ELedge.siteR.coord < that.ELedge.siteR.coord) this else that
+        if !rightOfSite(p.x, el)
+      } yield p
+    }
   }
 }
 
@@ -117,6 +145,8 @@ case class Point(x: Double, y: Double) {
   def norm: Double = Math.sqrt(norm2)
 
   def dist(that: Point): Double = (this - that).norm
+
+  def <(that: Point): Boolean = (this.y < that.y) || (this.y == that.y && this.x < that.x)
 }
 
 case class Site(coord: Point, siteIndex: Int)
@@ -193,8 +223,7 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
     last = PQhash(bucket(he))
     if (last == null) {
       PQhash(bucket(he)) = he
-    }
-    else if (!isAfter(last)) {
+    } else if (!isAfter(last)) {
       PQhash(bucket(he)) = he
       he.PQnext = last
     } else {
@@ -232,8 +261,8 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
 class ELt(sqrt_nsites: Int, boundingBox: Box) {
   private val ELhashsize: Int = 2 * sqrt_nsites
   private val ELhash: Array[Halfedge] = new Array[Halfedge](ELhashsize)
-  val ELleftend: Halfedge = new Halfedge(null, LE)
-  val ELrightend: Halfedge = new Halfedge(null, LE)
+  val ELleftend: Halfedge = new Halfedge("leftend", null, LE)
+  val ELrightend: Halfedge = new Halfedge("rightend", null, LE)
   ELleftend.ELleft = null
   ELleftend.ELright = ELrightend
   ELrightend.ELleft = ELleftend
@@ -257,21 +286,31 @@ class ELt(sqrt_nsites: Int, boundingBox: Box) {
     else bucket
   }
 
-  def leftbnd(p: Point): Halfedge = {
-    def getHalfedge(bucket: Int): Halfedge = {
-      var he = get(bucket)
-      var i: Int = 0
-      if (he == null) {
-        i = 1
-        while (i < ELhashsize && he == null) {
-          if (get(bucket - i) != null) he = get(bucket - i)
-          else if (get(bucket + i) != null) he = get(bucket + i)
-          i += 1
-        }
+  def getHalfedge(bucket: Int): Halfedge = {
+    var he = get(bucket)
+    var i: Int = 0
+    if (he == null) {
+      i = 1
+      while (i < ELhashsize && he == null) {
+        if (get(bucket - i) != null) he = get(bucket - i)
+        else if (get(bucket + i) != null) he = get(bucket + i)
+        i += 1
       }
-      he
     }
+    he
+  }
 
+//  def insert(he: Halfedge, p: Point): Unit = {
+  //    val start: Halfedge = leftbnd_inner(p)
+  //
+  //if (start != ELleftend) throw new Exception("Inserting into non-empty bucket!")
+  //he.ELleft = start
+  //he.ELright = start.ELright
+  //start.ELright.ELleft = he
+  //start.ELright = he
+  //}
+
+  def leftbnd_inner(p: Point): Halfedge = {
     val bucket: Int = getBucket(p)
     var he: Halfedge = getHalfedge(bucket)
     if (he == ELleftend || (he != ELrightend && right_of(he, p))) {
@@ -290,45 +329,45 @@ class ELt(sqrt_nsites: Int, boundingBox: Box) {
     he
   }
 
+  def leftbnd(p: Point): Halfedge = {
+    val he = leftbnd_inner(p)
+//    if (he == ELleftend || he == ELrightend) null
+    //else
+    he
+  }
+
   private def right_of(el: Halfedge, p: Point): Boolean = {
-    def above(e: Edge, topsite: Site, right_of_site: Boolean): Boolean = {
+    def above(e: Edge, right_of_site: Boolean): Boolean = {
       if (e.a == 1.0) {
-        val dyp = p.y - topsite.coord.y
-        val dxp = p.x - topsite.coord.x
+        val dp = p - e.siteR.coord
+        val ds = e.siteR.coord - e.siteL.coord
+        val a = e.b * (dp.x * dp.x - dp.y * dp.y) < ds.x * dp.y * (1.0 + 2.0 * dp.x / ds.x + e.b * e.b)
+        val temp = if (e.b < 0.0) !a else a
+
         if ((!right_of_site & (e.b < 0.0)) | (right_of_site & (e.b >= 0.0))) {
-          val aa = dyp >= e.b * dxp
-          if (!aa) {
-            val dxs = topsite.coord.x - e.siteL.coord.x
-            val a = e.b * (dxp * dxp - dyp * dyp) < dxs * dyp * (1.0 + 2.0 * dxp / dxs + e.b * e.b)
-            if (e.b < 0.0) !a
-            else a
-          } else aa
+          val aa = e.a * dp.y < e.b * dp.x
+          if (aa) temp
+          else true
         } else {
-          var a = e.above(p)
-          if (e.b < 0.0) a = !a
-          if (a) {
-            val dxs = topsite.coord.x - e.siteL.coord.x
-            val a = e.b * (dxp * dxp - dyp * dyp) < dxs * dyp * (1.0 + 2.0 * dxp / dxs + e.b * e.b)
-            if (e.b < 0.0) !a
-            else a
-          } else a
+          val aa = if (e.b < 0.0) !e.above(p) else e.above(p)
+          if (aa) temp
+          else false
         }
       } else {
         val yl = e.c - e.a * p.x
         val t1 = - yl + e.b * p.y
-        val t2 = p.x - topsite.coord.x
-        val t3 = yl - topsite.coord.y
+        val t2 = p.x - e.siteR.coord.x
+        val t3 = yl - e.siteR.coord.y
         t1 * t1 > t2 * t2 + t3 * t3
       }
     }
 
     val e: Edge = el.ELedge
-    val topsite: Site = e.siteR
-    val right_of_site: Boolean = p.x > topsite.coord.x
+    val right_of_site: Boolean = p.x > e.siteR.coord.x
     if (right_of_site && el.ELpm == LE) true
     else if (!right_of_site && el.ELpm == RE) false
-    else if (el.ELpm == LE) above(e, topsite, right_of_site)
-    else !above(e, topsite, right_of_site)
+    else if (el.ELpm == LE) above(e, right_of_site)
+    else !above(e, right_of_site)
   }
 }
 
@@ -387,7 +426,7 @@ class Voronoi(minDistanceBetweenSites: Double) {
 
   // Creates the edge that separates s1 and s2.
   // Normlised so that either a = 1 or b = 1.
-  private def separate(s1: Site, s2: Site): Edge = {
+  private def separatingLine(s1: Site, s2: Site): Edge = {
     val d = s2.coord - s1.coord
     val adx: Double = Math.abs(d.x)
     val ady: Double = Math.abs(d.y)
@@ -400,7 +439,6 @@ class Voronoi(minDistanceBetweenSites: Double) {
   }
 
   private def clip_line(e: Edge, maxBox: Box): Option[GraphEdge] = {
-    println(s"Edge: $e")
     if (e.siteL.coord.dist(e.siteR.coord) < minDistanceBetweenSites) return None
 
     val (s1, s2): (Site, Site) = if (e.a == 1.0 && e.b >= 0.0) (e.endPoints(1), e.endPoints(0)) else (e.endPoints(0), e.endPoints(1))
@@ -421,14 +459,12 @@ class Voronoi(minDistanceBetweenSites: Double) {
 
     if (e.a == 1.0) {
       if (s1 == null || needsClipping(y1, maxBox.minY, maxBox.maxY)) {
-        y1 = if (s1 == null) maxBox.minY
-        else clip(s1.coord.y, maxBox.minY, maxBox.maxY)
+        y1 = if (s1 == null) maxBox.minY else clip(s1.coord.y, maxBox.minY, maxBox.maxY)
         x1 = e.c - e.b * y1
       }
 
       if (s2 == null || needsClipping(y2, maxBox.minY, maxBox.maxY)) {
-        y2 = if (s2 == null) maxBox.maxY
-        else clip(s2.coord.y, maxBox.minY, maxBox.maxY)
+        y2 = if (s2 == null) maxBox.maxY else clip(s2.coord.y, maxBox.minY, maxBox.maxY)
         x2 = e.c - e.b * y2
       }
 
@@ -438,30 +474,25 @@ class Voronoi(minDistanceBetweenSites: Double) {
       if (x1 > maxBox.maxX) {
         x1 = maxBox.maxX
         y1 = (e.c - x1) / e.b
-      }
-      if (x1 < maxBox.minX) {
+      } else if (x1 < maxBox.minX) {
         x1 = maxBox.minX
         y1 = (e.c - x1) / e.b
       }
       if (x2 > maxBox.maxX) {
         x2 = maxBox.maxX
         y2 = (e.c - x2) / e.b
-      }
-      if (x2 < maxBox.minX) {
+      } else if (x2 < maxBox.minX) {
         x2 = maxBox.minX
         y2 = (e.c - x2) / e.b
       }
-    }
-    else {
+    } else {
       if (s1 == null || needsClipping(x1, maxBox.minX, maxBox.maxX)) {
-        x1 = if (s1 == null) maxBox.minX
-        else clip(s1.coord.x, maxBox.minX, maxBox.maxX)
+        x1 = if (s1 == null) maxBox.minX else clip(s1.coord.x, maxBox.minX, maxBox.maxX)
         y1 = e.c - e.a * x1
       }
 
       if (s2 == null || needsClipping(x2, maxBox.minX, maxBox.maxX)) {
-        x2 = if (s2 == null) maxBox.maxX
-        else clip(s2.coord.x, maxBox.minX, maxBox.maxX)
+        x2 = if (s2 == null) maxBox.maxX else clip(s2.coord.x, maxBox.minX, maxBox.maxX)
         y2 = e.c - e.a * x2
       }
 
@@ -493,31 +524,6 @@ class Voronoi(minDistanceBetweenSites: Double) {
     }
   }
 
-  private def intersect(el1: Halfedge, el2: Halfedge): Option[Point] = {
-    val e1: Edge = el1.ELedge
-    val e2: Edge = el2.ELedge
-
-    if (e1 == null || e2 == null) None
-    else if (e1.siteR == e2.siteR) None
-    else if (Math.abs(e1.discriminant(e2)) < 1.0e-10) None
-    else {
-      val d = e1.discriminant(e2)
-      val xint = (e1.c * e2.b - e2.c * e1.b) / d
-      val yint = (e2.c * e1.a - e1.c * e2.a) / d
-      val (e, el) = if ((e1.siteR.coord.y < e2.siteR.coord.y) || (e1.siteR.coord.y == e2.siteR.coord.y && e1.siteR.coord.x < e2.siteR.coord.x)) {
-        (e1, el1)
-      } else {
-        (e2, el2)
-      }
-      val right_of_site = xint >= e.siteR.coord.x
-      if ((right_of_site && el.ELpm == LE) || (!right_of_site && el.ELpm == RE)) {
-        None
-      } else {
-        Some(Point(xint, yint))
-      }
-    }
-  }
-
   private def voronoi_bd(allEdges: mutable.ListBuffer[GraphEdge], sites: Seq[Site], sqrtNrSites: Int, nrSites: Int, maxBox: Box, boundingBox: Box): Boolean = {
     var nvertices: Int = 0
     var newsite: Site = null
@@ -533,26 +539,35 @@ class Voronoi(minDistanceBetweenSites: Double) {
         newintstar = pqHash.min
       }
 
-      def isBefore(p1: Point, p2: Point): Boolean = {
-        p1.y < p2.y || (p1.y == p2.y && p1.x < p2.x)
-      }
-
-      if (newsite != null && (pqHash.isEmpty || isBefore(newsite.coord, newintstar))) {
+      if (newsite != null && (pqHash.isEmpty || (newsite.coord < newintstar))) {
         // p is a site in *(V):
         val lbnd: Halfedge = el.leftbnd(newsite.coord)
-        val rbnd: Halfedge = lbnd.ELright
-        val site: Site = if (lbnd.ELedge == null) bottomsite else lbnd.rightSite
-        val e: Edge = separate(site, newsite)
-        val bisector: Halfedge = new Halfedge(e, LE)
-        lbnd.insert(bisector)
-        pqHash.delete(lbnd)
-        intersect(lbnd, bisector).foreach { p =>
-          pqHash.insert(lbnd, p, p.dist(newsite.coord))
-        }
-        val bisector2 = new Halfedge(e, RE)
-        bisector.insert(bisector2)
-        intersect(bisector2, rbnd).foreach { p =>
-          pqHash.insert(bisector2, p, p.dist(newsite.coord))
+        if (lbnd.name == "leftend") {
+          val rbnd: Halfedge = lbnd.ELright
+          val site: Site = bottomsite
+          val e: Edge = separatingLine(site, newsite)
+          val bisector: Halfedge = new Halfedge("leftbi", e, LE)
+          lbnd.insert(bisector)
+          val bisector2 = new Halfedge("rightbi", e, RE)
+          bisector.insert(bisector2)
+          bisector2.intersect(rbnd).foreach { p =>
+            pqHash.insert(bisector2, p, p.dist(newsite.coord))
+          }
+        } else {
+          val rbnd: Halfedge = lbnd.ELright
+          val site: Site = lbnd.rightSite
+          val e: Edge = separatingLine(site, newsite)
+          val bisector: Halfedge = new Halfedge("leftbi", e, LE)
+          lbnd.insert(bisector)
+          pqHash.delete(lbnd)
+          lbnd.intersect(bisector).foreach { p =>
+            pqHash.insert(lbnd, p, p.dist(newsite.coord))
+          }
+          val bisector2 = new Halfedge("rightbi", e, RE)
+          bisector.insert(bisector2)
+          bisector2.intersect(rbnd).foreach { p =>
+            pqHash.insert(bisector2, p, p.dist(newsite.coord))
+          }
         }
         if (siteIterator.hasNext) newsite = siteIterator.next()
         else newsite = null
@@ -562,7 +577,6 @@ class Voronoi(minDistanceBetweenSites: Double) {
         val rbnd: Halfedge = lbnd.ELright
         val rrbnd: Halfedge = rbnd.ELright
         val v: Site = Site(lbnd.vertex, nvertices)
-        println(s"Site: $v ($lbnd)")
         nvertices += 1
 
         lbnd.setEndpoint(v)
@@ -579,16 +593,16 @@ class Voronoi(minDistanceBetweenSites: Double) {
           if (a.coord.y > b.coord.y) (b, a, RE)
           else (a, b, LE)
         }
-        val e: Edge = separate(bot, top)
-        val bisector: Halfedge = new Halfedge(e, pm)
+        val e: Edge = separatingLine(bot, top)
+        val bisector: Halfedge = new Halfedge("midbi", e, pm)
         llbnd.insert(bisector)
         bisector.setEndpoint(v, pm.inverse)
         clipIfDone(allEdges, e, maxBox)
         pqHash.delete(llbnd)
-        intersect(llbnd, bisector).foreach { p =>
+        llbnd.intersect(bisector).foreach { p =>
           pqHash.insert(llbnd, p, p.dist(bot.coord))
         }
-        intersect(bisector, rrbnd).foreach { p =>
+        bisector.intersect(rrbnd).foreach { p =>
           pqHash.insert(bisector, p, p.dist(bot.coord))
         }
       } else {
