@@ -75,25 +75,10 @@ class PQLink(val ELpm: Side) {
 }
 
 class Halfedge(val name: String, val ELedge: Edge, val ELpm: Side) {
-  var ELleft: Halfedge = null
-  var ELright: Halfedge = null
   var deleted: Boolean = false
   var vertex: Point = null
   var ystar: Double = .0
   var PQnext: Halfedge = null
-
-  def insert(newHe: Halfedge) {
-    newHe.ELleft = this
-    newHe.ELright = this.ELright
-    this.ELright.ELleft = newHe
-    this.ELright = newHe
-  }
-
-  def delete(): Unit = {
-    ELleft.ELright = ELright
-    ELright.ELleft = ELleft
-    deleted = true
-  }
 
   override def toString(): String = s"Halfedge($name, $ELpm, $ELedge)"
 
@@ -258,21 +243,53 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
   }
 }
 
+class ELNode(val halfEdge: Halfedge) {
+  var left: ELNode = _
+  var right: ELNode = _
+
+  def insert(newHe: ELNode) {
+    newHe.left = this
+    newHe.right = this.right
+    this.right.left = newHe
+    this.right = newHe
+  }
+
+  def delete(): Unit = {
+    this.left.right = this.right
+    this.right.left = left
+    halfEdge.deleted = true
+  }
+}
+
 class ELt(sqrt_nsites: Int, boundingBox: Box) {
   private val ELhashsize: Int = 2 * sqrt_nsites
-  private val ELhash: Array[Halfedge] = new Array[Halfedge](ELhashsize)
-  val ELleftend: Halfedge = new Halfedge("leftend", null, LE)
-  val ELrightend: Halfedge = new Halfedge("rightend", null, LE)
-  ELleftend.ELleft = null
-  ELleftend.ELright = ELrightend
-  ELrightend.ELleft = ELleftend
-  ELrightend.ELright = null
+  private val ELhash: Array[ELNode] = new Array[ELNode](ELhashsize)
+  val ELleftend: ELNode = new ELNode(new Halfedge("leftend", null, LE))
+  val ELrightend: ELNode = new ELNode(new Halfedge("rightend", null, LE))
+  ELleftend.left = null
+  ELleftend.right = ELrightend
+  ELrightend.left = ELleftend
+  ELrightend.right = null
   ELhash(0) = ELleftend
   ELhash(ELhashsize - 1) = ELrightend
 
-  private def get(b: Int): Halfedge = {
-    val he: Halfedge = ELhash(b)
-    if (he == null || !he.deleted) he
+  // TODO: Very inefficient, optimise
+  def find(he: Halfedge): ELNode = {
+    var bucket = 0
+    while (bucket < ELhash.size) {
+      var node = ELhash(bucket)
+      while (node != null) {
+        if (node.halfEdge == he) return node
+        else node = node.right
+      }
+      bucket += 1
+    }
+    null
+  }
+
+  private def get(b: Int): ELNode = {
+    val he: ELNode = ELhash(b)
+    if (he == null || !he.halfEdge.deleted) he
     else {
       ELhash(b) = null
       null
@@ -286,7 +303,7 @@ class ELt(sqrt_nsites: Int, boundingBox: Box) {
     else bucket
   }
 
-  def getHalfedge(bucket: Int): Halfedge = {
+  def getHalfedge(bucket: Int): ELNode = {
     var he = get(bucket)
     var i: Int = 0
     if (he == null) {
@@ -300,39 +317,22 @@ class ELt(sqrt_nsites: Int, boundingBox: Box) {
     he
   }
 
-//  def insert(he: Halfedge, p: Point): Unit = {
-  //    val start: Halfedge = leftbnd_inner(p)
-  //
-  //if (start != ELleftend) throw new Exception("Inserting into non-empty bucket!")
-  //he.ELleft = start
-  //he.ELright = start.ELright
-  //start.ELright.ELleft = he
-  //start.ELright = he
-  //}
-
-  def leftbnd_inner(p: Point): Halfedge = {
+  def leftbnd(p: Point): ELNode = {
     val bucket: Int = getBucket(p)
-    var he: Halfedge = getHalfedge(bucket)
-    if (he == ELleftend || (he != ELrightend && right_of(he, p))) {
+    var he: ELNode = getHalfedge(bucket)
+    if (he == ELleftend || (he != ELrightend && right_of(he.halfEdge, p))) {
       do {
-        he = he.ELright
-      } while (he != ELrightend && right_of(he, p))
-      he = he.ELleft
+        he = he.right
+      } while (he != ELrightend && right_of(he.halfEdge, p))
+      he = he.left
     } else {
       do {
-        he = he.ELleft
-      } while (he != ELleftend && !right_of(he, p))
+        he = he.left
+      } while (he != ELleftend && !right_of(he.halfEdge, p))
     }
     if (bucket > 0 && bucket < ELhashsize - 1) {
       ELhash(bucket) = he
     }
-    he
-  }
-
-  def leftbnd(p: Point): Halfedge = {
-    val he = leftbnd_inner(p)
-//    if (he == ELleftend || he == ELrightend) null
-    //else
     he
   }
 
@@ -541,79 +541,80 @@ class Voronoi(minDistanceBetweenSites: Double) {
 
       if (newsite != null && (pqHash.isEmpty || (newsite.coord < newintstar))) {
         // p is a site in *(V):
-        val lbnd: Halfedge = el.leftbnd(newsite.coord)
-        if (lbnd.name == "leftend") {
-          val rbnd: Halfedge = lbnd.ELright
+        val lbnd: ELNode = el.leftbnd(newsite.coord)
+        if (lbnd.halfEdge.name == "leftend") {
+          val rbnd: Halfedge = lbnd.right.halfEdge
           val site: Site = bottomsite
           val e: Edge = separatingLine(site, newsite)
-          val bisector: Halfedge = new Halfedge("leftbi", e, LE)
+          val bisector: ELNode = new ELNode(new Halfedge("leftbi", e, LE))
           lbnd.insert(bisector)
-          val bisector2 = new Halfedge("rightbi", e, RE)
+          val bisector2: ELNode = new ELNode(new Halfedge("rightbi", e, RE))
           bisector.insert(bisector2)
-          bisector2.intersect(rbnd).foreach { p =>
-            pqHash.insert(bisector2, p, p.dist(newsite.coord))
+          bisector2.halfEdge.intersect(rbnd).foreach { p =>
+            pqHash.insert(bisector2.halfEdge, p, p.dist(newsite.coord))
           }
         } else {
-          val rbnd: Halfedge = lbnd.ELright
-          val site: Site = lbnd.rightSite
+          val rbnd: Halfedge = lbnd.right.halfEdge
+          val site: Site = lbnd.halfEdge.rightSite
           val e: Edge = separatingLine(site, newsite)
-          val bisector: Halfedge = new Halfedge("leftbi", e, LE)
+          val bisector: ELNode = new ELNode(new Halfedge("leftbi", e, LE))
           lbnd.insert(bisector)
-          pqHash.delete(lbnd)
-          lbnd.intersect(bisector).foreach { p =>
-            pqHash.insert(lbnd, p, p.dist(newsite.coord))
+          pqHash.delete(lbnd.halfEdge)
+          lbnd.halfEdge.intersect(bisector.halfEdge).foreach { p =>
+            pqHash.insert(lbnd.halfEdge, p, p.dist(newsite.coord))
           }
-          val bisector2 = new Halfedge("rightbi", e, RE)
+          val bisector2 = new ELNode(new Halfedge("rightbi", e, RE))
           bisector.insert(bisector2)
-          bisector2.intersect(rbnd).foreach { p =>
-            pqHash.insert(bisector2, p, p.dist(newsite.coord))
+          bisector2.halfEdge.intersect(rbnd).foreach { p =>
+            pqHash.insert(bisector2.halfEdge, p, p.dist(newsite.coord))
           }
         }
         if (siteIterator.hasNext) newsite = siteIterator.next()
         else newsite = null
       } else if (!pqHash.isEmpty) {
-        val lbnd: Halfedge = pqHash.extractmin
-        val llbnd: Halfedge = lbnd.ELleft
-        val rbnd: Halfedge = lbnd.ELright
-        val rrbnd: Halfedge = rbnd.ELright
-        val v: Site = Site(lbnd.vertex, nvertices)
+        val lbndE: Halfedge = pqHash.extractmin
+        val lbnd: ELNode = el.find(lbndE)
+        val llbnd: ELNode = lbnd.left
+        val rbnd: ELNode = lbnd.right
+        val rrbnd: ELNode = rbnd.right
+        val v: Site = Site(lbnd.halfEdge.vertex, nvertices)
         nvertices += 1
 
-        lbnd.setEndpoint(v)
-        clipIfDone(allEdges, lbnd.ELedge, maxBox)
-        rbnd.setEndpoint(v)
-        clipIfDone(allEdges, rbnd.ELedge, maxBox)
+        lbnd.halfEdge.setEndpoint(v)
+        clipIfDone(allEdges, lbnd.halfEdge.ELedge, maxBox)
+        rbnd.halfEdge.setEndpoint(v)
+        clipIfDone(allEdges, rbnd.halfEdge.ELedge, maxBox)
         lbnd.delete()
-        pqHash.delete(rbnd)
+        pqHash.delete(rbnd.halfEdge)
         rbnd.delete()
 
         val (bot: Site, top: Site, pm: Side) = {
-          val a: Site = lbnd.leftSite
-          val b: Site = rbnd.rightSite
+          val a: Site = lbnd.halfEdge.leftSite
+          val b: Site = rbnd.halfEdge.rightSite
           if (a.coord.y > b.coord.y) (b, a, RE)
           else (a, b, LE)
         }
         val e: Edge = separatingLine(bot, top)
-        val bisector: Halfedge = new Halfedge("midbi", e, pm)
+        val bisector = new ELNode(new Halfedge("midbi", e, pm))
         llbnd.insert(bisector)
-        bisector.setEndpoint(v, pm.inverse)
+        bisector.halfEdge.setEndpoint(v, pm.inverse)
         clipIfDone(allEdges, e, maxBox)
-        pqHash.delete(llbnd)
-        llbnd.intersect(bisector).foreach { p =>
-          pqHash.insert(llbnd, p, p.dist(bot.coord))
+        pqHash.delete(llbnd.halfEdge)
+        llbnd.halfEdge.intersect(bisector.halfEdge).foreach { p =>
+          pqHash.insert(llbnd.halfEdge, p, p.dist(bot.coord))
         }
-        bisector.intersect(rrbnd).foreach { p =>
-          pqHash.insert(bisector, p, p.dist(bot.coord))
+        bisector.halfEdge.intersect(rrbnd.halfEdge).foreach { p =>
+          pqHash.insert(bisector.halfEdge, p, p.dist(bot.coord))
         }
       } else {
         keepLooping = false
       }
     }
     // Add all remaining edges in the beach line
-    var lbnd = el.ELleftend.ELright
+    var lbnd = el.ELleftend.right
     while (lbnd != el.ELrightend) {
-      allEdges ++= clip_line(lbnd.ELedge, maxBox)
-      lbnd = lbnd.ELright
+      allEdges ++= clip_line(lbnd.halfEdge.ELedge, maxBox)
+      lbnd = lbnd.right
     }
     true
   }
