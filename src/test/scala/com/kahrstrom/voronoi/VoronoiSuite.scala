@@ -21,7 +21,7 @@ class VoronoiSuite extends FlatSpec with Matchers {
     }
   }
 
-  def round(d: Double): Double = BigDecimal(d).setScale(10, BigDecimal.RoundingMode.HALF_UP).toDouble
+  def round(d: Double): Double = BigDecimal(d).setScale(8, BigDecimal.RoundingMode.HALF_UP).toDouble
   def round(p: P): P = P(round(p.x), round(p.y))
   def round(e: E): E = E(round(e.p1), round(e.p2), e.site1, e.site2)
   def round(s: Set[E]): Set[E] = s.map(round)
@@ -50,7 +50,6 @@ class VoronoiSuite extends FlatSpec with Matchers {
 
     // Note that E(P(0.0, 0.0), P(0.0, -0.0), 2, 0) should not be an edge, this is a bug
     convertToSimpleEdges(graphEdges) should be (Set(E(P(-2.0,0.0),P(-0.0,0.0),2,1), E(P(0.0,0.0),P(0.0,-0.0),2,0), E(P(0.0,-2.0),P(0.0,0.0),2,3), E(P(0.0,0.0),P(2.0,0.0),3,0), E(P(0.0,-0.0),P(0.0,2.0),1,0)) )
-    println(graphEdges)
   }
 
   it should "generate simple voronoi list" in {
@@ -90,17 +89,15 @@ class VoronoiSuite extends FlatSpec with Matchers {
     round(convertToSimpleEdges(result)) should be (round(expected))
   }
 
-  val min = -2.0
-  val max = 2.0
   val r = new Random()
-  def scale(v: Double): Double = v * (max - min) + min
+  def scale(min: Double, max: Double, v: Double): Double = v * (max - min) + min
 
-  def generateValues(n: Int): Array[Double] = {
+  def generateValues(min: Double, max: Double, n: Int): Array[Double] = {
     val ret: Array[Double] = new Array[Double](n)
 
     var i: Int = 0
     while (i < ret.length) {
-      ret(i) = scale(r.nextDouble)
+      ret(i) = scale(min, max, r.nextDouble)
       i += 1
     }
 
@@ -119,52 +116,43 @@ class VoronoiSuite extends FlatSpec with Matchers {
     ret
   }
 
-  it should "generate same edges as Java original on 10 points" in {
-    val jvoronoi = new javavoronoi.Voronoi(0.00001)
-    val voronoi = new Voronoi(0.00001)
+  def runTests(nrTests: Int, nrValues: Int, min: Double, max: Double): Unit = {
+    val jvoronoi = new javavoronoi.Voronoi(0.000001)
+    val voronoi = new Voronoi(0.000001)
 
-    for (i <- (0 to 10)) {
-      val jxs = generateValues(10)
-      val jys = generateValues(10)
+    for (i <- (0 to nrTests)) {
+      val jxs = generateValues(min, max, nrValues)
+      val jys = generateValues(min, max, nrValues)
       val xs = copyValues(jxs)
       val ys = copyValues(jys)
 
-      val jret: Seq[javavoronoi.GraphEdge] = jvoronoi.generateVoronoi(jxs, jys, -2.0, 2.0, -2.0, 2.0).toSeq
-      val ret = voronoi.generateVoronoi(xs, ys, -2.0, 2.0, -2.0, 2.0).toSeq
+      val jret: Seq[javavoronoi.GraphEdge] = jvoronoi.generateVoronoi(jxs, jys, min, max, min, max).toSeq
+      val ret = voronoi.generateVoronoi(xs, ys, min, max, min, max).toSeq
 
-      round(convertToSimpleEdges(jret.map(convertToScala))) should be (round(convertToSimpleEdges(ret)))
+      val r = round(convertToSimpleEdges(jret.map(convertToScala)))
+      val e = round(convertToSimpleEdges(ret))
+      val d1 = r.diff(e)
+      val d2 = e.diff(r)
+
+      d1 should be (d2)
+      d1 should be (Set.empty)
+      r should be (e)
     }
+  }
+
+  it should "generate same edges as Java original on 10 points" in {
+    runTests(100, 10, -2.0, 2.0)
   }
 
   it should "generate same edges as Java original on 100 points" in {
-    val jvoronoi = new javavoronoi.Voronoi(0.00001)
-    val voronoi = new Voronoi(0.00001)
-
-    for (i <- (0 to 10)) {
-      val jxs = generateValues(100)
-      val jys = generateValues(100)
-      val xs = copyValues(jxs)
-      val ys = copyValues(jys)
-
-      val jret: Seq[javavoronoi.GraphEdge] = jvoronoi.generateVoronoi(jxs, jys, -2.0, 2.0, -2.0, 2.0).toSeq
-      val ret = voronoi.generateVoronoi(xs, ys, -2.0, 2.0, -2.0, 2.0).toSeq
-
-      round(convertToSimpleEdges(jret.map(convertToScala))) should be (round(convertToSimpleEdges(ret)))
-    }
+    runTests(30, 100, -3.0, 3.0)
   }
 
   it should "generate same edges as Java original on 1000 points" in {
-    val jvoronoi = new javavoronoi.Voronoi(0.00001)
-    val voronoi = new Voronoi(0.00001)
+    runTests(10, 1000, -4.0, 4.0)
+  }
 
-    val jxs = generateValues(1000)
-    val jys = generateValues(1000)
-    val xs = copyValues(jxs)
-    val ys = copyValues(jys)
-
-    val jret: Seq[javavoronoi.GraphEdge] = jvoronoi.generateVoronoi(jxs, jys, -2.0, 2.0, -2.0, 2.0).toSeq
-    val ret = voronoi.generateVoronoi(xs, ys, -2.0, 2.0, -2.0, 2.0).toSeq
-
-    round(convertToSimpleEdges(jret.map(convertToScala))) should be (round(convertToSimpleEdges(ret)))
+  it should "generate same edges as Java original on 10000 points" in {
+    runTests(5, 10000, -5.0, 5.0)
   }
 }
