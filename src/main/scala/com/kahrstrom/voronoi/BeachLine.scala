@@ -6,25 +6,13 @@ package com.kahrstrom.voronoi
 class Arc(val halfEdge: Halfedge) {
   var left: Arc = _
   var right: Arc = _
-  var deleted: Boolean = false
-
-  def insert(that: Arc) {
-    that.left = this
-    that.right = this.right
-    this.right.left = that
-    this.right = that
-  }
-
-  def delete(): Unit = {
-    this.left.right = this.right
-    this.right.left = left
-    this.deleted = true
-  }
 }
 
 /*
- * Stores the arcs in a 'hash' (really just an array of linked
- * lists).
+ * Stores the arcs in a 'hash' (really just a linked
+ * list with a special start and end, and an array
+ * of pointers into that linked list for quicker
+ * access).
  */
 class BeachLine(sqrt_nsites: Int, boundingBox: Box) {
   private val ELhashsize: Int = 2 * sqrt_nsites
@@ -38,28 +26,38 @@ class BeachLine(sqrt_nsites: Int, boundingBox: Box) {
   ELhash(0) = ELleftend
   ELhash(ELhashsize - 1) = ELrightend
 
+  def insertAfter(thiz: Arc, that: Arc) {
+    that.left = thiz
+    that.right = thiz.right
+    thiz.right.left = that
+    thiz.right = that
+  }
+
   // TODO: Very inefficient, optimise
-  def find(he: Halfedge): Arc = {
+  def delete(thiz: Arc): Unit = {
+    thiz.left.right = thiz.right
+    thiz.right.left = thiz.left
     var bucket = 0
-    while (bucket < ELhash.length) {
-      var node = ELhash(bucket)
-      while (node != null) {
-        if (node.halfEdge == he) return node
-        else node = node.right
+    while (bucket < ELhashsize) {
+      if (thiz == ELhash(bucket)) {
+        ELhash(bucket) = null
       }
       bucket += 1
+    }
+  }
+
+
+  // TODO: Very inefficient, optimise
+  def find(he: Halfedge): Arc = {
+    var node = ELhash(0)
+    while (node != null) {
+      if (node.halfEdge == he) return node
+      else node = node.right
     }
     null
   }
 
-  private def get(b: Int): Arc = {
-    val he: Arc = ELhash(b)
-    if (he == null || !he.deleted) he
-    else {
-      ELhash(b) = null
-      null
-    }
-  }
+  private def get(b: Int): Arc = ELhash(b)
 
   private def getBucket(p: Point): Int = {
     val bucket = ((p.x - boundingBox.minX) / (boundingBox.maxX - boundingBox.minX) * ELhashsize).toInt
@@ -68,7 +66,8 @@ class BeachLine(sqrt_nsites: Int, boundingBox: Box) {
     else bucket
   }
 
-  def getHalfedge(bucket: Int): Arc = {
+  private def getHalfedge(bucket: Int): Arc = {
+    // Find the closest non-empty bucket
     var he = get(bucket)
     if (he == null) {
       var i: Int = 1
@@ -95,6 +94,7 @@ class BeachLine(sqrt_nsites: Int, boundingBox: Box) {
       } while (he != ELleftend && !right_of(he.halfEdge, p))
     }
     if (bucket > 0 && bucket < ELhashsize - 1) {
+      // Put this arc in the correct bucket
       ELhash(bucket) = he
     }
     he

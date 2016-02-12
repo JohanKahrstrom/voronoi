@@ -52,7 +52,7 @@ class VoronoiSuite extends FlatSpec with Matchers {
     convertToSimpleEdges(graphEdges) should be (Set(E(P(-2.0,0.0),P(-0.0,0.0),2,1), E(P(0.0,0.0),P(0.0,-0.0),2,0), E(P(0.0,-2.0),P(0.0,0.0),2,3), E(P(0.0,0.0),P(2.0,0.0),3,0), E(P(0.0,-0.0),P(0.0,2.0),1,0)) )
   }
 
-  it should "generate simple voronoi list" in {
+  it should "generate three points list" in {
     val voronoi = new Voronoi(0.00001)
     val graphEdges: Seq[GraphEdge] = voronoi.generateVoronoi(Array(1.0, -1.0, 0.0), Array(1.0, 1.0, 0.0), -2.0, 2.0, -2.0, 2.0).toSeq
 

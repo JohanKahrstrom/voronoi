@@ -73,7 +73,7 @@ class Edge(val a: Double, val b: Double, val c: Double, val siteL: Site, val sit
 
 case class GraphEdge(x1: Double, y1: Double, x2: Double, y2: Double, site1: Int, site2: Int)
 
-class Halfedge(val name: String, val edge: Edge, val pm: Side) {
+class Halfedge(var name: String, val edge: Edge, val pm: Side) {
   // The vertex of the endpoint
   var vertex: Point = null
   // The point where the 'circle event' happens, i.e. the point
@@ -181,7 +181,8 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
     bucket
   }
 
-  def delete(he: Halfedge) {
+  def delete(m: String, he: Halfedge) {
+    println(s"m: $m, ${he.vertex}")
     var last: Halfedge = null
     if (he.vertex != null) {
       last = PQhash(bucket(he))
@@ -199,6 +200,7 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
   }
 
   def insert(he: Halfedge, v: Point, offset: Double) {
+    println(s"I:    $v}")
     def isAfter(he2: Halfedge): Boolean = {
       he.ystar > he2.ystar
     }
@@ -244,6 +246,7 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
     PQhash(PQmin) = curr.PQnext
     PQcount -= 1
     curr.PQnext = null
+    println(s"E:    ${curr.vertex}")
     curr
   }
 }
@@ -294,11 +297,7 @@ class Voronoi(minDistanceBetweenSites: Double) {
     val points: Seq[Point] = (xValues zip yValues) map { case (x, y) => Point(x, y) }
     val sites: Seq[Site] = points.zipWithIndex.map { case (p, i) => Site(p, i) }
 
-    sites.sortWith { (s1, s2) =>
-      val p1: Point = s1.coord
-      val p2: Point = s2.coord
-      p1.y < p2.y || (p1.y == p2.y && p1.x < p2.x)
-    }
+    sites.sortWith { (s1, s2) => s1.coord < s2.coord }
   }
 
   // Creates the edge that separates s1 and s2.
@@ -419,9 +418,9 @@ class Voronoi(minDistanceBetweenSites: Double) {
           val site: Site = bottomsite
           val e: Edge = separatingLine(site, newsite)
           val bisector: Arc = new Arc(new Halfedge("leftbi", e, LE))
-          lbnd.insert(bisector)
+          bl.insertAfter(lbnd, bisector)
           val bisector2: Arc = new Arc(new Halfedge("rightbi", e, RE))
-          bisector.insert(bisector2)
+          bl.insertAfter(bisector, bisector2)
           bisector2.halfEdge.intersect(rbnd).foreach { p =>
             pqHash.insert(bisector2.halfEdge, p, p.dist(newsite.coord))
           }
@@ -430,13 +429,13 @@ class Voronoi(minDistanceBetweenSites: Double) {
           val site: Site = lbnd.halfEdge.rightSite
           val e: Edge = separatingLine(site, newsite)
           val bisector: Arc = new Arc(new Halfedge("leftbi", e, LE))
-          lbnd.insert(bisector)
-          pqHash.delete(lbnd.halfEdge)
+          bl.insertAfter(lbnd, bisector)
+          pqHash.delete("a", lbnd.halfEdge)
           lbnd.halfEdge.intersect(bisector.halfEdge).foreach { p =>
             pqHash.insert(lbnd.halfEdge, p, p.dist(newsite.coord))
           }
           val bisector2 = new Arc(new Halfedge("rightbi", e, RE))
-          bisector.insert(bisector2)
+          bl.insertAfter(bisector, bisector2)
           bisector2.halfEdge.intersect(rbnd).foreach { p =>
             pqHash.insert(bisector2.halfEdge, p, p.dist(newsite.coord))
           }
@@ -445,7 +444,8 @@ class Voronoi(minDistanceBetweenSites: Double) {
         else newsite = null
       } else if (!pqHash.isEmpty) {
         // This is a 'circle/vertex event'
-        val lbnd: Arc = bl.find(pqHash.extractmin)
+        val min = pqHash.extractmin
+        val lbnd: Arc = bl.find(min)
         val llbnd: Arc = lbnd.left
         val rbnd: Arc = lbnd.right
         val rrbnd: Arc = rbnd.right
@@ -456,9 +456,9 @@ class Voronoi(minDistanceBetweenSites: Double) {
         clipIfDone(allEdges, lbnd.halfEdge.edge, maxBox)
         rbnd.halfEdge.setEndpoint(v)
         clipIfDone(allEdges, rbnd.halfEdge.edge, maxBox)
-        lbnd.delete()
-        pqHash.delete(rbnd.halfEdge)
-        rbnd.delete()
+        bl.delete(lbnd)
+        pqHash.delete("b", rbnd.halfEdge)
+        bl.delete(rbnd)
 
         val (bot: Site, top: Site, pm: Side) = {
           val a: Site = lbnd.halfEdge.leftSite
@@ -468,10 +468,10 @@ class Voronoi(minDistanceBetweenSites: Double) {
         }
         val e: Edge = separatingLine(bot, top)
         val bisector = new Arc(new Halfedge("midbi", e, pm))
-        llbnd.insert(bisector)
+        bl.insertAfter(llbnd, bisector)
         bisector.halfEdge.setEndpoint(v, pm.inverse)
         clipIfDone(allEdges, e, maxBox)
-        pqHash.delete(llbnd.halfEdge)
+        pqHash.delete("c", llbnd.halfEdge)
         llbnd.halfEdge.intersect(bisector.halfEdge).foreach { p =>
           pqHash.insert(llbnd.halfEdge, p, p.dist(bot.coord))
         }
