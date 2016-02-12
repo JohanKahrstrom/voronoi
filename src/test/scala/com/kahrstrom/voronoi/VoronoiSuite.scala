@@ -21,7 +21,11 @@ class VoronoiSuite extends FlatSpec with Matchers {
     }
   }
 
-  def round(d: Double): Double = BigDecimal(d).setScale(8, BigDecimal.RoundingMode.HALF_UP).toDouble
+  def fixNegZero(d: Double): Double = if (d == 0.0) 0.0 else d
+
+  def round(d: Double): Double = {
+    fixNegZero(BigDecimal(d).setScale(8, BigDecimal.RoundingMode.HALF_UP).toDouble)
+  }
   def round(p: P): P = P(round(p.x), round(p.y))
   def round(e: E): E = E(round(e.p1), round(e.p2), e.site1, e.site2)
   def round(s: Set[E]): Set[E] = s.map(round)
@@ -49,7 +53,7 @@ class VoronoiSuite extends FlatSpec with Matchers {
     val graphEdges: Seq[GraphEdge] = voronoi.generateVoronoi(Array(1.0, -1.0, -1.0, 1.0), Array(1.0, 1.0, -1.0, -1.0), -2.0, 2.0, -2.0, 2.0).toSeq
 
     // Note that E(P(0.0, 0.0), P(0.0, -0.0), 2, 0) should not be an edge, this is a bug
-    convertToSimpleEdges(graphEdges) should be (Set(E(P(-2.0,0.0),P(-0.0,0.0),2,1), E(P(0.0,0.0),P(0.0,-0.0),2,0), E(P(0.0,-2.0),P(0.0,0.0),2,3), E(P(0.0,0.0),P(2.0,0.0),3,0), E(P(0.0,-0.0),P(0.0,2.0),1,0)) )
+    round(convertToSimpleEdges(graphEdges)) should be (round(Set(E(P(-2.0,0.0),P(-0.0,0.0),2,1), E(P(0.0,0.0),P(0.0,-0.0),2,0), E(P(0.0,-2.0),P(0.0,0.0),2,3), E(P(0.0,0.0),P(2.0,0.0),3,0), E(P(0.0,-0.0),P(0.0,2.0),1,0))) )
   }
 
   it should "generate three points list" in {

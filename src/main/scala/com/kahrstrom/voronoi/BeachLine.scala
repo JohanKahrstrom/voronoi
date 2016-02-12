@@ -6,6 +6,8 @@ package com.kahrstrom.voronoi
 class Arc(val halfEdge: Halfedge) {
   var left: Arc = _
   var right: Arc = _
+
+  override def toString: String = s"Arc($halfEdge)"
 }
 
 /*
@@ -46,7 +48,6 @@ class BeachLine(sqrt_nsites: Int, boundingBox: Box) {
     }
   }
 
-
   // TODO: Very inefficient, optimise
   def find(he: Halfedge): Arc = {
     var node = ELhash(0)
@@ -54,7 +55,7 @@ class BeachLine(sqrt_nsites: Int, boundingBox: Box) {
       if (node.halfEdge == he) return node
       else node = node.right
     }
-    null
+    throw new Exception(s"Failed to find halfedge: $he")
   }
 
   private def get(b: Int): Arc = ELhash(b)

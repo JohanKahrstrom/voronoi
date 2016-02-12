@@ -76,10 +76,6 @@ case class GraphEdge(x1: Double, y1: Double, x2: Double, y2: Double, site1: Int,
 class Halfedge(var name: String, val edge: Edge, val pm: Side) {
   // The vertex of the endpoint
   var vertex: Point = null
-  // The point where the 'circle event' happens, i.e. the point
-  // where he sweep line is when the beach line closes around
-  // the vertex.
-  var ystar: Point = null
 
   // This should really be handled by PQHash:
   var PQnext: Halfedge = null
@@ -139,7 +135,9 @@ case class Point(x: Double, y: Double) {
   def >(that: Point): Boolean = !(this < that) && !(this == that)
 }
 
-case class Site(coord: Point, siteIndex: Int)
+case class Site(coord: Point, siteIndex: Int) {
+  if (coord == null) throw new Exception(s"Site with null coord: $siteIndex")
+}
 
 sealed trait Side {
   val index: Int
@@ -160,16 +158,27 @@ object RE extends Side {
 
 case class Box(minX: Double, maxX: Double, minY: Double, maxY: Double)
 
+sealed trait Event {
+  val point: Point
+  var next: Event = _
+}
+
+case class SiteEvent(site: Site) extends Event {
+  val point = site.coord
+}
+
+case class VertexEvent(halfedge: Halfedge, vertex: Point, point: Point) extends Event
+
 // Priority queue?
 class PQHash(sqrt_nsites: Int, boundingBox: Box) {
   private var PQcount: Int = 0
   private var PQmin: Int = 0
   private val PQhashsize: Int = 4 * sqrt_nsites
-  private val PQhash: Array[Halfedge] = new Array[Halfedge](PQhashsize)
+  private val PQhash: Array[Event] = new Array[Event](PQhashsize)
 
-  private def bucket(he: Halfedge): Int = {
+  private def bucket(point: Point): Int = {
     var bucket: Int = 0
-    bucket = ((he.ystar.y - boundingBox.minY) / (boundingBox.maxY - boundingBox.minY) * PQhashsize).toInt
+    bucket = ((point.y - boundingBox.minY) / (boundingBox.maxY - boundingBox.minY) * PQhashsize).toInt
     if (bucket < 0) {
       bucket = 0
     } else if (bucket >= PQhashsize) {
@@ -181,51 +190,53 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
     bucket
   }
 
-  def delete(m: String, he: Halfedge) {
-    println(s"m: $m, ${he.vertex}")
-    var last: Halfedge = null
-    if (he.vertex != null) {
-      last = PQhash(bucket(he))
-      if (last == he) PQhash(bucket(he)) = last.PQnext
+  def delete(point: Point) {
+    var last: Event = null
+    last = PQhash(bucket(point))
+    if (last != null) {
+      if (last.point == point) PQhash(bucket(point)) = last.next
       else {
-        while (last.PQnext != he) {
-          last = last.PQnext
+        while (last.next.point != point) {
+          last = last.next
         }
-        last.PQnext = he.PQnext
+        val n = last.next
+        last.next = last.next.next
+        n.next = null
       }
       PQcount -= 1
-      he.vertex = null
-      he.PQnext = null
     }
   }
 
-  def insert(he: Halfedge, v: Point, offset: Double) {
-    println(s"I:    $v}")
-    def isAfter(he2: Halfedge): Boolean = {
-      he.ystar > he2.ystar
-    }
+  def insert(he: Halfedge, v: Point, offset: Double): Unit = {
+    he.vertex = v + Point(0.0, offset)
+    insert(new VertexEvent(he, v, he.vertex))
+  }
 
-    if (he.PQnext != null) throw new Exception("Inserting he with PQnext!")
+  def insert(event: Event) {
+    if (event.next != null) throw new Exception("Inserting he with PQnext!")
 
-    var last: Halfedge = null
-    he.vertex = v
-    he.ystar = v + Point(0.0, offset)
-    last = PQhash(bucket(he))
+    var last: Event = null
+    last = PQhash(bucket(event.point))
     if (last == null) {
-      PQhash(bucket(he)) = he
-    } else if (!isAfter(last)) {
-      PQhash(bucket(he)) = he
-      he.PQnext = last
+      PQhash(bucket(event.point)) = event
+    } else if (!(event.point > last.point)) {
+      if (last.point != event.point) {
+        PQhash(bucket(event.point)) = event
+        event.next = last
+      } else return
     } else {
-      var next: Halfedge = null
+      var next: Event = null
       while ( {
-        next = last.PQnext
+        next = last.next
         next
-      } != null && isAfter(next)) {
+      } != null && (event.point > next.point)) {
         last = next
       }
-      he.PQnext = last.PQnext
-      last.PQnext = he
+      if (event.point != last.point) {
+        // Make sure we don't add the same event twice
+        event.next = last.next
+        last.next = event
+      } else return
     }
     PQcount += 1
   }
@@ -236,17 +247,16 @@ class PQHash(sqrt_nsites: Int, boundingBox: Box) {
     while (PQhash(PQmin) == null) {
       PQmin += 1
     }
-    PQhash(PQmin).ystar
+    PQhash(PQmin).point
   }
 
-  def extractmin: Halfedge = {
+  def extractmin: Event = {
     min // Make sure PQmin is up to date
-    var curr: Halfedge = null
+    var curr: Event = null
     curr = PQhash(PQmin)
-    PQhash(PQmin) = curr.PQnext
+    PQhash(PQmin) = curr.next
     PQcount -= 1
-    curr.PQnext = null
-    println(s"E:    ${curr.vertex}")
+    curr.next = null
     curr
   }
 }
@@ -402,84 +412,81 @@ class Voronoi(minDistanceBetweenSites: Double) {
 
   private def voronoi_bd(allEdges: mutable.ListBuffer[GraphEdge], sites: Seq[Site], sqrtNrSites: Int, nrSites: Int, maxBox: Box, boundingBox: Box): Boolean = {
     var nvertices: Int = 0
-    var newsite: Site = null
     val pqHash: PQHash = new PQHash(sqrtNrSites, boundingBox)
     val bl: BeachLine = new BeachLine(sqrtNrSites, boundingBox)
-    val siteIterator: Iterator[Site] = sites.iterator
-    val bottomsite: Site = siteIterator.next()
-    newsite = siteIterator.next()
-    var keepLooping: Boolean = true
-    while (keepLooping) {
-      if (newsite != null && (pqHash.isEmpty || (newsite.coord < pqHash.min))) {
-        // This is a 'point event':
-        val lbnd: Arc = bl.leftbnd(newsite.coord)
-        if (lbnd.halfEdge.name == "leftend") {
-          val rbnd: Halfedge = lbnd.right.halfEdge
-          val site: Site = bottomsite
-          val e: Edge = separatingLine(site, newsite)
-          val bisector: Arc = new Arc(new Halfedge("leftbi", e, LE))
-          bl.insertAfter(lbnd, bisector)
-          val bisector2: Arc = new Arc(new Halfedge("rightbi", e, RE))
-          bl.insertAfter(bisector, bisector2)
-          bisector2.halfEdge.intersect(rbnd).foreach { p =>
-            pqHash.insert(bisector2.halfEdge, p, p.dist(newsite.coord))
-          }
-        } else {
-          val rbnd: Halfedge = lbnd.right.halfEdge
-          val site: Site = lbnd.halfEdge.rightSite
-          val e: Edge = separatingLine(site, newsite)
-          val bisector: Arc = new Arc(new Halfedge("leftbi", e, LE))
-          bl.insertAfter(lbnd, bisector)
-          pqHash.delete("a", lbnd.halfEdge)
-          lbnd.halfEdge.intersect(bisector.halfEdge).foreach { p =>
-            pqHash.insert(lbnd.halfEdge, p, p.dist(newsite.coord))
-          }
-          val bisector2 = new Arc(new Halfedge("rightbi", e, RE))
-          bl.insertAfter(bisector, bisector2)
-          bisector2.halfEdge.intersect(rbnd).foreach { p =>
-            pqHash.insert(bisector2.halfEdge, p, p.dist(newsite.coord))
+    for {
+      site <- sites.drop(1)
+    } {
+      pqHash.insert(SiteEvent(site))
+    }
+    val bottomsite: Site = sites.head
+    while (!pqHash.isEmpty) {
+      pqHash.extractmin match {
+        case SiteEvent(newsite) => {
+          val lbnd: Arc = bl.leftbnd(newsite.coord)
+          if (lbnd.halfEdge.name == "leftend") {
+            val rbnd: Halfedge = lbnd.right.halfEdge
+            val site: Site = bottomsite
+            val e: Edge = separatingLine(site, newsite)
+            val bisector: Arc = new Arc(new Halfedge("leftbi", e, LE))
+            bl.insertAfter(lbnd, bisector)
+            val bisector2: Arc = new Arc(new Halfedge("rightbi", e, RE))
+            bl.insertAfter(bisector, bisector2)
+            bisector2.halfEdge.intersect(rbnd).foreach { p =>
+              pqHash.insert(bisector2.halfEdge, p, p.dist(newsite.coord))
+            }
+          } else {
+            val rbnd: Halfedge = lbnd.right.halfEdge
+            val site: Site = lbnd.halfEdge.rightSite
+            val e: Edge = separatingLine(site, newsite)
+            val bisector: Arc = new Arc(new Halfedge("leftbi", e, LE))
+            bl.insertAfter(lbnd, bisector)
+            if (lbnd.halfEdge.vertex != null) pqHash.delete(lbnd.halfEdge.vertex)
+            lbnd.halfEdge.intersect(bisector.halfEdge).foreach { p =>
+              pqHash.insert(lbnd.halfEdge, p, p.dist(newsite.coord))
+            }
+            val bisector2 = new Arc(new Halfedge("rightbi", e, RE))
+            bl.insertAfter(bisector, bisector2)
+            bisector2.halfEdge.intersect(rbnd).foreach { p =>
+              pqHash.insert(bisector2.halfEdge, p, p.dist(newsite.coord))
+            }
           }
         }
-        if (siteIterator.hasNext) newsite = siteIterator.next()
-        else newsite = null
-      } else if (!pqHash.isEmpty) {
-        // This is a 'circle/vertex event'
-        val min = pqHash.extractmin
-        val lbnd: Arc = bl.find(min)
-        val llbnd: Arc = lbnd.left
-        val rbnd: Arc = lbnd.right
-        val rrbnd: Arc = rbnd.right
-        val v: Site = Site(lbnd.halfEdge.vertex, nvertices)
-        nvertices += 1
+        case VertexEvent(he, vertex, point) => {
+          val lbnd: Arc = bl.find(he)
+          val llbnd: Arc = lbnd.left
+          val rbnd: Arc = lbnd.right
+          val rrbnd: Arc = rbnd.right
+          val v: Site = Site(vertex, nvertices)
+          nvertices += 1
 
-        lbnd.halfEdge.setEndpoint(v)
-        clipIfDone(allEdges, lbnd.halfEdge.edge, maxBox)
-        rbnd.halfEdge.setEndpoint(v)
-        clipIfDone(allEdges, rbnd.halfEdge.edge, maxBox)
-        bl.delete(lbnd)
-        pqHash.delete("b", rbnd.halfEdge)
-        bl.delete(rbnd)
+          lbnd.halfEdge.setEndpoint(v)
+          clipIfDone(allEdges, lbnd.halfEdge.edge, maxBox)
+          rbnd.halfEdge.setEndpoint(v)
+          clipIfDone(allEdges, rbnd.halfEdge.edge, maxBox)
+          bl.delete(lbnd)
+          if (rbnd.halfEdge.vertex != null) pqHash.delete(rbnd.halfEdge.vertex)
+          bl.delete(rbnd)
 
-        val (bot: Site, top: Site, pm: Side) = {
-          val a: Site = lbnd.halfEdge.leftSite
-          val b: Site = rbnd.halfEdge.rightSite
-          if (a.coord.y > b.coord.y) (b, a, RE)
-          else (a, b, LE)
+          val (bot: Site, top: Site, pm: Side) = {
+            val a: Site = lbnd.halfEdge.leftSite
+            val b: Site = rbnd.halfEdge.rightSite
+            if (a.coord.y > b.coord.y) (b, a, RE)
+            else (a, b, LE)
+          }
+          val e: Edge = separatingLine(bot, top)
+          val bisector = new Arc(new Halfedge("midbi", e, pm))
+          bl.insertAfter(llbnd, bisector)
+          bisector.halfEdge.setEndpoint(v, pm.inverse)
+          clipIfDone(allEdges, e, maxBox)
+          if (llbnd.halfEdge.vertex != null) pqHash.delete(llbnd.halfEdge.vertex)
+          llbnd.halfEdge.intersect(bisector.halfEdge).foreach { p =>
+            pqHash.insert(llbnd.halfEdge, p, p.dist(bot.coord))
+          }
+          bisector.halfEdge.intersect(rrbnd.halfEdge).foreach { p =>
+            pqHash.insert(bisector.halfEdge, p, p.dist(bot.coord))
+          }
         }
-        val e: Edge = separatingLine(bot, top)
-        val bisector = new Arc(new Halfedge("midbi", e, pm))
-        bl.insertAfter(llbnd, bisector)
-        bisector.halfEdge.setEndpoint(v, pm.inverse)
-        clipIfDone(allEdges, e, maxBox)
-        pqHash.delete("c", llbnd.halfEdge)
-        llbnd.halfEdge.intersect(bisector.halfEdge).foreach { p =>
-          pqHash.insert(llbnd.halfEdge, p, p.dist(bot.coord))
-        }
-        bisector.halfEdge.intersect(rrbnd.halfEdge).foreach { p =>
-          pqHash.insert(bisector.halfEdge, p, p.dist(bot.coord))
-        }
-      } else {
-        keepLooping = false
       }
     }
     // Add all remaining edges in the beach line
